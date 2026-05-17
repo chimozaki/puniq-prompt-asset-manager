@@ -22,6 +22,7 @@ const sampleItems = [
 
 export default function App() {
   const [items, setItems] = useState(sampleItems);
+  const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState({
     title: "",
@@ -49,9 +50,11 @@ export default function App() {
         setItems(sampleItems);
       }
     }
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
+    if (!loaded) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 
     const toLoad = items.filter((item) => item.hasImage && !imageMap[item.id]);
@@ -502,7 +505,7 @@ export default function App() {
         }
       }
 
-      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const zipBlob = await zip.generateAsync({ type: "blob", encodeFileName: (name) => new TextEncoder().encode(name) });
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement("a");
       a.href = url;
@@ -526,6 +529,74 @@ export default function App() {
     if (!file) return;
 
     try {
+      // ZIPファイルの場合
+      if (file.name.endsWith(".zip")) {
+        const zip = await JSZip.loadAsync(file);
+
+        // ZIP内のCSVを探す
+        const csvFile = Object.values(zip.files).find(
+          (f) => !f.dir && f.name.endsWith(".csv")
+        );
+        if (!csvFile) {
+          showStatus("ZIP内にCSVが見つかりませんでした");
+          return;
+        }
+
+        // thumbnails/フォルダの画像をファイル名→data URLのマップに変換
+        const thumbMap = {};
+        for (const [path, zipEntry] of Object.entries(zip.files)) {
+          if (!zipEntry.dir && path.includes("thumbnails/")) {
+            const fileName = path.split("/").pop();
+            const blob = await zipEntry.async("blob");
+            const dataUrl = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+            thumbMap[fileName] = dataUrl;
+          }
+        }
+
+        const csvText = await csvFile.async("string");
+        const rows = parseCsvText(csvText);
+        const importedItems = [];
+
+        for (const row of rows) {
+          const [title, positive, negative, tagsText, imageField, favoriteText] = row;
+          const id = makeSafeId();
+
+          // data URLかファイル名かを判定
+          let validImage = "";
+          if (imageField && imageField.startsWith("data:")) {
+            validImage = imageField;
+          } else if (imageField && thumbMap[imageField]) {
+            validImage = thumbMap[imageField];
+          }
+
+          const newItem = {
+            id,
+            title: title || "無題プロンプト",
+            positive: positive || "",
+            negative: negative || "",
+            tags: parseTags(tagsText || ""),
+            hasImage: Boolean(validImage),
+            favorite: favoriteText === "true",
+            createdAt: new Date().toLocaleString(),
+          };
+
+          if (validImage) {
+            await saveImage(id, validImage);
+          }
+
+          importedItems.push(newItem);
+        }
+
+        setItems((current) => [...importedItems, ...current]);
+        showStatus(`ZIPから${importedItems.length}件インポートしました`);
+        return;
+      }
+
+      // CSVファイルの場合
       const csvText = await file.text();
       const rows = parseCsvText(csvText);
       const importedItems = [];
@@ -556,10 +627,10 @@ export default function App() {
       }
 
       setItems((current) => [...importedItems, ...current]);
-      showStatus("CSVをインポートしました");
+      showStatus(`CSVから${importedItems.length}件インポートしました`);
     } catch (error) {
       console.error(error);
-      showStatus("CSVのインポートに失敗しました");
+      showStatus("インポートに失敗しました");
     }
   }
 
@@ -589,7 +660,7 @@ export default function App() {
             📥 Import
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.zip"
               onChange={(e) => {
                 importPromptsCsv(e.target.files?.[0]);
                 e.target.value = "";
@@ -1045,6 +1116,7 @@ const styles = {
     cursor: "pointer",
     fontSize: "13px",
     fontWeight: 700,
+    font: "inherit",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
