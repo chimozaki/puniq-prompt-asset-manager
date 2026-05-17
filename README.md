@@ -78,7 +78,8 @@ npm run dev
 ### バックアップ（エクスポート）
 
 - 右上の「📤 Export」ボタンをクリック
-- 保存先フォルダを選ぶと、タイムスタンプ付きのフォルダにCSVと画像がまとめて書き出されます
+- **Chrome** → 保存先フォルダを選ぶと、タイムスタンプ付きのフォルダにCSVと画像がまとめて書き出されます
+- **Brave・その他ブラウザ** → `タイムスタンプ_export.zip` として自動ダウンロードされます（ZIP内の構造は同じ）
 
 ### 復元（インポート）
 
@@ -177,7 +178,8 @@ Then open `http://localhost:5173` in your browser.
 ### Backup (Export)
 
 - Click the **📤 Export** button
-- Choose a folder — a timestamped folder will be created with your CSV and images inside
+- **Chrome** → Choose a folder — a timestamped folder will be created with your CSV and images inside
+- **Brave & other browsers** → A `timestamp_export.zip` file will be downloaded automatically (same folder structure inside)
 
 ### Restore (Import)
 
@@ -276,7 +278,8 @@ npm run dev
 ### 備份（匯出）
 
 - 點擊右上角的「📤 Export」按鈕
-- 選擇目標資料夾，系統會自動建立含時間戳記的資料夾，並將 CSV 與圖片一起輸出
+- **Chrome** → 選擇目標資料夾，系統會自動建立含時間戳記的資料夾，並將 CSV 與圖片一起輸出
+- **Brave 及其他瀏覽器** → 會自動下載 `時間戳記_export.zip` 檔案（ZIP 內結構相同）
 
 ### 還原（匯入）
 
@@ -375,7 +378,8 @@ Luego abre `http://localhost:5173` en tu navegador.
 ### Copia de seguridad (Exportar)
 
 - Haz clic en el botón **📤 Export**
-- Elige una carpeta — se creará automáticamente una carpeta con marca de tiempo que contiene el CSV y las imágenes
+- **Chrome** → Elige una carpeta — se creará automáticamente una carpeta con marca de tiempo que contiene el CSV y las imágenes
+- **Brave y otros navegadores** → Se descargará automáticamente un archivo `marca_de_tiempo_export.zip` (con la misma estructura interna)
 
 ### Restaurar (Importar)
 

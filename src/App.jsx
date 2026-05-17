@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import JSZip from "jszip";
 
 const STORAGE_KEY = "puniq_prompt_asset_manager_v1";
 const DB_NAME = "puniq_prompt_asset_manager_images";
@@ -485,16 +486,31 @@ export default function App() {
         return;
       }
 
-      const { csv } = await buildExportCsvRows(false);
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
+      // showDirectoryPicker非対応ブラウザ（Brave等）はZIPでダウンロード
+      const { csv, images } = await buildExportCsvRows(true);
+      const zip = new JSZip();
+      const exportFolderName = timestamp + "_export";
+      const folder = zip.folder(exportFolderName);
+
+      folder.file(csvFileName, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+
+      if (images.length > 0) {
+        const thumbFolder = folder.folder("thumbnails");
+        for (const image of images) {
+          const base64 = image.dataUrl.split(",")[1];
+          thumbFolder.file(image.fileName, base64, { base64: true });
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = csvFileName;
+      a.download = `${exportFolderName}.zip`;
       a.click();
       URL.revokeObjectURL(url);
 
-      showStatus("CSVをエクスポートしました");
+      showStatus("ZIPでエクスポートしました");
     } catch (error) {
       if (error?.name === "AbortError") {
         showStatus("エクスポートをキャンセルしました");
@@ -639,11 +655,11 @@ export default function App() {
                   <button
                     type="button"
                     key={tag}
-                    onClick={() => removeTag(tag)}
+                    onClick={() => copyText(tag, `#${tag}`)}
                     style={styles.tagChipInInput}
-                    title="クリックで削除"
+                    title="クリックでコピー（削除はBackspace）"
                   >
-                    #{tag} <span style={styles.tagRemove}>×</span>
+                    #{tag}
                   </button>
                 ))}
 
@@ -1072,11 +1088,6 @@ const styles = {
     padding: "5px 10px",
     fontSize: "13px",
     cursor: "pointer",
-  },
-
-  tagRemove: {
-    marginLeft: "4px",
-    opacity: 0.8,
   },
 
   tagGuide: {
