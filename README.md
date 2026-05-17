@@ -41,11 +41,50 @@
 
 ### Windowsの場合
 
-1. このリポジトリをダウンロードまたはクローンする
-2. `puniq-prompt-asset-manager` フォルダの中に入る
-3. `start_puniq_pam.bat` をダブルクリック
+#### ステップ1：ファイルをダウンロードする
 
-> 初回だけ少し時間がかかることがあります。ブラウザが自動で開きます。
+このページの右上にある緑色の「**Code**」ボタンをクリック →「**Download ZIP**」を選んでダウンロードします。
+
+ダウンロードしたZIPを**好きな場所に解凍**してください。
+例：`C:\Users\あなたの名前\Documents\puniq-prompt-asset-manager`
+
+---
+
+#### ステップ2：batファイルのパスを書き換える
+
+解凍したフォルダの中に `start_puniq_pam.bat` があります。
+このファイルを**右クリック → メモ帳で開く**と、以下のような行があります：
+
+```
+cd /d C:\Users\YourName\Documents\puniq-prompt-asset-manager
+```
+
+この部分を**自分が解凍したフォルダのパスに書き換えて**保存してください。
+
+> 💡 **パスの調べ方：** エクスプローラーでフォルダを開き、上部のアドレスバーをクリックするとパスが表示されます。それをコピーして貼り付けてください。
+
+---
+
+#### ステップ3：初回のみ npm install を実行する
+
+コマンドプロンプトを開いて以下を実行してください（初回だけ必要です）：
+
+```bash
+cd "C:\自分のパスをここに貼り付け"
+npm install
+```
+
+> 💡 **コマンドプロンプトの開き方：** スタートメニューで「cmd」と検索して開いてください。
+
+---
+
+#### ステップ4：アプリを起動する
+
+`start_puniq_pam.bat` を**ダブルクリック**するとブラウザが自動で開きます。
+
+> 2回目以降はダブルクリックするだけでOKです！
+
+---
 
 ### Mac / Linuxの場合
 
@@ -141,11 +180,48 @@ It runs in your browser and stores everything **locally on your own PC**. Nothin
 
 ### Windows
 
-1. Download or clone this repository
-2. Open the `puniq-prompt-asset-manager` folder
-3. Double-click `start_puniq_pam.bat`
+#### Step 1: Download the files
 
-> The first run may take a moment. Your browser will open automatically.
+Click the green **Code** button at the top right of this page → Select **Download ZIP** and download it.
+
+**Extract the ZIP** to wherever you like.
+Example: `C:\Users\YourName\Documents\puniq-prompt-asset-manager`
+
+---
+
+#### Step 2: Edit the bat file path
+
+Inside the extracted folder, find `start_puniq_pam.bat`.
+**Right-click it → Open with Notepad** and look for this line:
+
+```
+cd /d C:\Users\YourName\Documents\puniq-prompt-asset-manager
+```
+
+**Replace it with the actual path** where you extracted the folder, then save the file.
+
+> 💡 **How to find your path:** Open the folder in Explorer, then click the address bar at the top — it will show the full path. Copy and paste it.
+
+---
+
+#### Step 3: Run npm install (first time only)
+
+Open **Command Prompt** (search "cmd" in the Start menu) and run:
+
+```bash
+cd "C:\paste-your-path-here"
+npm install
+```
+
+---
+
+#### Step 4: Launch the app
+
+**Double-click** `start_puniq_pam.bat` — your browser will open automatically.
+
+> From the second time onwards, just double-click to launch!
+
+---
 
 ### Mac / Linux
 
@@ -241,11 +317,48 @@ MIT License © 2026 PuniQ
 
 ### Windows
 
-1. 下載或複製（clone）此儲存庫
-2. 進入 `puniq-prompt-asset-manager` 資料夾
-3. 雙擊執行 `start_puniq_pam.bat`
+#### 步驟 1：下載檔案
 
-> 第一次啟動可能需要稍等片刻，瀏覽器會自動開啟。
+點擊本頁右上角的綠色「**Code**」按鈕 →「**Download ZIP**」下載。
+
+將 ZIP 解壓縮到您喜歡的位置。
+例如：`C:\Users\您的名稱\Documents\puniq-prompt-asset-manager`
+
+---
+
+#### 步驟 2：修改 bat 檔案的路徑
+
+在解壓縮的資料夾中找到 `start_puniq_pam.bat`。
+**右鍵 → 用記事本開啟**，找到以下這行：
+
+```
+cd /d C:\Users\YourName\Documents\puniq-prompt-asset-manager
+```
+
+**將這行改成您自己解壓縮的資料夾路徑**，然後儲存檔案。
+
+> 💡 **如何找到路徑：** 在檔案總管中開啟資料夾，點擊上方的網址列，就會顯示完整路徑。複製貼上即可。
+
+---
+
+#### 步驟 3：執行 npm install（僅第一次）
+
+開啟**命令提示字元**（在開始選單搜尋「cmd」），執行：
+
+```bash
+cd "C:\貼上您的路徑"
+npm install
+```
+
+---
+
+#### 步驟 4：啟動應用程式
+
+**雙擊** `start_puniq_pam.bat`，瀏覽器會自動開啟。
+
+> 第二次之後只需雙擊即可啟動！
+
+---
 
 ### Mac / Linux
 
@@ -341,11 +454,48 @@ La aplicación funciona en tu navegador y guarda todo **únicamente en tu propio
 
 ### Windows
 
-1. Descarga o clona este repositorio
-2. Entra en la carpeta `puniq-prompt-asset-manager`
-3. Haz doble clic en `start_puniq_pam.bat`
+#### Paso 1: Descargar los archivos
 
-> La primera vez puede tardar unos segundos. El navegador se abrirá automáticamente.
+Haz clic en el botón verde **Code** en la parte superior derecha de esta página → Selecciona **Download ZIP** y descárgalo.
+
+**Extrae el ZIP** donde quieras.
+Ejemplo: `C:\Users\TuNombre\Documents\puniq-prompt-asset-manager`
+
+---
+
+#### Paso 2: Editar la ruta en el archivo bat
+
+Dentro de la carpeta extraída, busca `start_puniq_pam.bat`.
+**Haz clic derecho → Abrir con Bloc de notas** y busca esta línea:
+
+```
+cd /d C:\Users\YourName\Documents\puniq-prompt-asset-manager
+```
+
+**Reemplázala con la ruta real** donde extrajiste la carpeta y guarda el archivo.
+
+> 💡 **Cómo encontrar tu ruta:** Abre la carpeta en el Explorador de archivos y haz clic en la barra de direcciones — mostrará la ruta completa. Cópiala y pégala.
+
+---
+
+#### Paso 3: Ejecutar npm install (solo la primera vez)
+
+Abre el **Símbolo del sistema** (busca "cmd" en el menú Inicio) y ejecuta:
+
+```bash
+cd "C:\pega-tu-ruta-aquí"
+npm install
+```
+
+---
+
+#### Paso 4: Iniciar la aplicación
+
+**Haz doble clic** en `start_puniq_pam.bat` — el navegador se abrirá automáticamente.
+
+> ¡A partir de la segunda vez, solo haz doble clic para iniciar!
+
+---
 
 ### Mac / Linux
 
