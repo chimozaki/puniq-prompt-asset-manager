@@ -39,6 +39,9 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
   const [onlyFavorite, setOnlyFavorite] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [sortOrder, setSortOrder] = useState(() => localStorage.getItem("puniq_sort_order") || "newest");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [colCount, setColCount] = useState(() => Number(localStorage.getItem("puniq_col_count")) || 4);
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -73,6 +76,15 @@ export default function App() {
     return () => { cancelled = true; };
   }, [items]);
 
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const handler = (e) => {
+      if (!e.target.closest("[data-sort-wrap]")) setSortMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sortMenuOpen]);
+
   function showStatus(message) {
     setStatus(message);
     window.setTimeout(() => {
@@ -85,7 +97,7 @@ export default function App() {
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
 
-    return items.filter((item) => {
+    const result = items.filter((item) => {
       if (onlyFavorite && !item.favorite) return false;
       if (!q) return true;
 
@@ -94,7 +106,16 @@ export default function App() {
         .toLowerCase()
         .includes(q);
     });
-  }, [items, query, onlyFavorite]);
+
+    if (sortOrder === "oldest") {
+      return [...result].reverse();
+    } else if (sortOrder === "favorite") {
+      return [...result].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+    } else if (sortOrder === "title") {
+      return [...result].sort((a, b) => (a.title || "").localeCompare(b.title || "", "ja"));
+    }
+    return result;
+  }, [items, query, onlyFavorite, sortOrder]);
 
 
   function commitTagFromDraft() {
@@ -846,75 +867,140 @@ export default function App() {
         >
           ❤ お気に入り
         </button>
+
+        <div style={{ flex: 1 }} />
+
+        <div style={styles.sortWrap} data-sort-wrap="">
+          <button
+            type="button"
+            onClick={() => setSortMenuOpen((v) => !v)}
+            style={styles.sortButton}
+          >
+            🔀 {sortOrder === "newest" ? "新しい順" : sortOrder === "oldest" ? "古い順" : sortOrder === "favorite" ? "お気に入り優先" : "タイトル順"}
+          </button>
+          {sortMenuOpen && (
+            <div style={styles.sortMenu}>
+              {[
+                { key: "newest", label: "新しい順" },
+                { key: "oldest", label: "古い順" },
+                { key: "favorite", label: "お気に入り優先" },
+                { key: "title", label: "タイトル順" },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setSortOrder(key);
+                    localStorage.setItem("puniq_sort_order", key);
+                    setSortMenuOpen(false);
+                  }}
+                  style={sortOrder === key ? styles.sortMenuItemActive : styles.sortMenuItem}
+                >
+                  {sortOrder === key ? "✅ " : "　"}{label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={styles.colButtons}>
+          {[4, 5, 6].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => {
+                setColCount(n);
+                localStorage.setItem("puniq_col_count", n);
+              }}
+              style={colCount === n ? styles.colButtonActive : styles.colButton}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <main style={styles.gallery}>
+      <main style={{ ...styles.gallery, gridTemplateColumns: `repeat(${colCount}, 1fr)` }}>
         {filtered.map((item) => (
           <article key={item.id} style={styles.card}>
-            <button
-              type="button"
-              onClick={() => toggleFavorite(item.id)}
-              style={item.favorite ? styles.favoriteButtonActive : styles.favoriteButton}
-              title={item.favorite ? "お気に入り解除" : "お気に入りに追加"}
-            >
-              ❤
-            </button>
+            {/* サムネイル */}
+            <div style={styles.cardThumb}>
+              {imageMap[item.id] ? (
+                <img src={imageMap[item.id]} alt="" style={styles.cardFullImage} />
+              ) : (
+                <div style={styles.noImageFull}>No Thumbnail</div>
+              )}
+              {item.favorite && (() => {
+                const sz = colCount <= 4 ? 80 : colCount === 5 ? 66 : 52;
+                const hs = colCount <= 4 ? 38 : colCount === 5 ? 31 : 24;
+                const hx = sz / 3 - hs / 2;
+                const hy = sz / 3 - hs / 2;
+                return (
+                  <svg
+                    style={styles.favSvg}
+                    width={sz}
+                    height={sz}
+                    viewBox={`0 0 ${sz} ${sz}`}
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <polygon
+                      points={`0,0 ${sz},0 0,${sz}`}
+                      fill="rgba(255,79,163,0.85)"
+                    />
+                    <path
+                      transform={`translate(${hx}, ${hy}) scale(${hs / 24})`}
+                      d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                      fill="white"
+                    />
+                  </svg>
+                );
+              })()}
+            </div>
 
-            {imageMap[item.id] ? (
-              <img src={imageMap[item.id]} alt="" style={styles.cardFullImage} />
-            ) : (
-              <div style={styles.noImageFull}>No Thumbnail</div>
-            )}
+            {/* タイトル・日時 */}
+            <div style={styles.cardInfo}>
+              <div style={{ ...styles.cardTitle, fontSize: colCount <= 4 ? "12px" : colCount === 5 ? "11px" : "10px" }}>{item.title}</div>
+              <div style={{ ...styles.date, fontSize: colCount <= 4 ? "10px" : "9px" }}>{item.createdAt}</div>
+            </div>
 
-            <div style={styles.fullOverlay}>
-              <div>
-                <div style={styles.cardTitle}>{item.title}</div>
-
-                <div style={styles.tags}>
-                  {getVisibleTags(item.tags).visible.map((tag) => (
-                    <span key={tag} style={styles.tag}>
-                      #{tag}
-                    </span>
-                  ))}
-                  {getVisibleTags(item.tags).hiddenCount > 0 && (
-                    <span style={styles.tagMore}>…</span>
-                  )}
-                </div>
-
-                <div style={styles.date}>{item.createdAt}</div>
-              </div>
-
-              <div style={styles.buttons}>
+            {/* アクションボタン */}
+            <div style={styles.cardActions}>
+              <div style={styles.cardActionRow}>
                 <button
-                  onClick={() => copyText(item.positive, "Positive Prompt")}
-                  style={styles.cardWideButton}
+                  type="button"
+                  onClick={() => toggleFavorite(item.id)}
+                  style={item.favorite ? styles.cardIconButtonFav : styles.cardIconButtonNormal}
+                  title={item.favorite ? "お気に入り解除" : "お気に入りに追加"}
                 >
-                  📋 Positive
+                  ❤
                 </button>
-
-                <button
-                  onClick={() => copyText(item.negative, "Negative Prompt")}
-                  style={styles.cardWideButton}
-                >
-                  📋 Negative
-                </button>
-              </div>
-
-              <div style={styles.cardActionIcons}>
                 <button
                   onClick={() => editItem(item)}
-                  style={styles.cardIconButton}
+                  style={styles.cardIconButtonNormal}
                   title="編集"
                 >
                   📝
                 </button>
-
                 <button
                   onClick={() => setConfirmDeleteId(item.id)}
-                  style={styles.cardDeleteIconButton}
+                  style={styles.cardIconButtonDelete}
                   title="削除"
                 >
                   🗑️
+                </button>
+              </div>
+              <div style={styles.cardCopyRow}>
+                <button
+                  onClick={() => copyText(item.positive, "Positive Prompt")}
+                  style={styles.cardCopyButton}
+                >
+                  📋 Pos
+                </button>
+                <button
+                  onClick={() => copyText(item.negative, "Negative Prompt")}
+                  style={styles.cardCopyButton}
+                >
+                  📋 Neg
                 </button>
               </div>
             </div>
@@ -1060,40 +1146,6 @@ const styles = {
     verticalAlign: "baseline",
   },
 
-  favoriteButton: {
-    position: "absolute",
-    top: "12px",
-    left: "12px",
-    zIndex: 3,
-    width: "44px",
-    height: "44px",
-    borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.25)",
-    background: "rgba(15,18,26,0.86)",
-    color: "rgba(255,255,255,0.82)",
-    fontSize: "22px",
-    cursor: "pointer",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.35)",
-  },
-
-  favoriteButtonActive: {
-    position: "absolute",
-    top: "12px",
-    left: "12px",
-    zIndex: 3,
-    width: "44px",
-    height: "44px",
-    borderRadius: "999px",
-    border: "1px solid rgba(255,122,184,0.75)",
-    background: "rgba(255,79,163,0.25)",
-    color: "#ff7ab8",
-    fontSize: "22px",
-    cursor: "pointer",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.35)",
-  },
-
-
-
   headerTools: {
     display: "flex",
     flexDirection: "row",
@@ -1170,59 +1222,8 @@ const styles = {
     paddingLeft: "2px",
   },
 
-  tagMore: {
-    fontSize: "12px",
-    color: "#f2f3f6",
-    border: "1px solid rgba(255,255,255,0.22)",
-    background: "rgba(0,0,0,0.38)",
-    borderRadius: "999px",
-    padding: "3px 8px",
-  },
 
 
-
-  cardWideButton: {
-    border: "1px solid #343844",
-    borderRadius: "12px",
-    background: "rgba(15,18,26,0.88)",
-    color: "#fff",
-    padding: "14px 12px",
-    cursor: "pointer",
-    fontWeight: 700,
-    width: "100%",
-  },
-
-  cardActionIcons: {
-    position: "absolute",
-    top: "12px",
-    right: "12px",
-    display: "flex",
-    gap: "10px",
-  },
-
-  cardIconButton: {
-    width: "44px",
-    height: "44px",
-    borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.25)",
-    background: "rgba(15,18,26,0.86)",
-    color: "#fff",
-    fontSize: "20px",
-    cursor: "pointer",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.35)",
-  },
-
-  cardDeleteIconButton: {
-    width: "44px",
-    height: "44px",
-    borderRadius: "999px",
-    border: "1px solid rgba(255,120,140,0.45)",
-    background: "rgba(80,10,20,0.75)",
-    color: "#ffd7df",
-    fontSize: "18px",
-    cursor: "pointer",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.35)",
-  },
 
   page: {
     minHeight: "100vh",
@@ -1522,18 +1523,24 @@ const styles = {
     borderRadius: "18px",
     background: "#11141a",
     boxShadow: "0 12px 28px rgba(0,0,0,0.28)",
+    display: "flex",
+    flexDirection: "column",
+  },
+  cardThumb: {
     position: "relative",
-    minHeight: "360px",
+    width: "100%",
+    overflow: "hidden",
+    borderTopLeftRadius: "18px",
+    borderTopRightRadius: "18px",
   },
   cardFullImage: {
     width: "100%",
-    height: "100%",
-    minHeight: "360px",
+    aspectRatio: "3 / 4",
     objectFit: "cover",
     display: "block",
   },
   noImageFull: {
-    minHeight: "360px",
+    aspectRatio: "3 / 4",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1541,36 +1548,198 @@ const styles = {
     fontSize: "14px",
     background: "#1b1e26",
   },
-  fullOverlay: {
-    position: "absolute",
-    inset: 0,
+  cardInfo: {
+    padding: "8px 10px 4px",
     display: "flex",
     flexDirection: "column",
-    justifyContent: "flex-end",
-    gap: "12px",
-    padding: "96px 12px 12px",
-    background: "linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.55) 42%, rgba(0,0,0,0.04) 75%)",
+    gap: "3px",
+    minHeight: "48px",
   },
   cardTitle: {
     fontWeight: 700,
-    fontSize: "15px",
-    lineHeight: 1.35,
+    fontSize: "12px",
+    lineHeight: 1.3,
     whiteSpace: "normal",
     overflow: "hidden",
     display: "-webkit-box",
-    WebkitLineClamp: 3,
+    WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
-    textShadow: "0 1px 2px rgba(0,0,0,0.9)",
+    color: "#f1f1f4",
   },
-  tags: { display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" },
-  tag: {
-    fontSize: "12px",
-    color: "#f2f3f6",
+  date: { color: "#858a96", fontSize: "10px" },
+  cardActions: {
+    padding: "6px 8px 8px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+  },
+  cardActionRow: {
+    display: "flex",
+    gap: "4px",
+  },
+  cardCopyRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "4px",
+  },
+  favSvg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    pointerEvents: "none",
+    zIndex: 2,
+  },
+  cardIconButtonNormal: {
+    flex: 1,
+    height: "30px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,255,255,0.15)",
+    background: "rgba(25,29,37,0.92)",
+    color: "#d4d6df",
+    fontSize: "14px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardIconButtonFav: {
+    flex: 1,
+    height: "30px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,122,184,0.6)",
+    background: "rgba(255,79,163,0.18)",
+    color: "#ff6db8",
+    fontSize: "14px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardIconButtonDelete: {
+    flex: 1,
+    height: "30px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,80,110,0.35)",
+    background: "rgba(255,80,110,0.1)",
+    color: "#ff6f91",
+    fontSize: "14px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardCopyButton: {
+    height: "30px",
+    borderRadius: "8px",
+    border: "1px solid #343844",
+    background: "rgba(15,18,26,0.88)",
+    color: "#fff",
+    fontSize: "11px",
+    fontWeight: 700,
+    font: "inherit",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "3px",
+  },
+  buttons: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px" },
+  sortWrap: { position: "relative" },
+  sortButton: {
     border: "1px solid rgba(255,255,255,0.22)",
-    background: "rgba(0,0,0,0.38)",
-    borderRadius: "999px",
-    padding: "3px 8px",
+    borderRadius: "12px",
+    background: "rgba(25,29,37,0.92)",
+    color: "#fff",
+    padding: "0 12px",
+    height: "40px",
+    boxSizing: "border-box",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 700,
+    font: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    whiteSpace: "nowrap",
+    lineHeight: 1,
   },
-  date: { color: "#d4d6df", fontSize: "12px", marginBottom: "0", textShadow: "0 1px 2px rgba(0,0,0,0.9)" },
-  buttons: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" },
+  sortMenu: {
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    right: 0,
+    zIndex: 1000,
+    background: "rgba(18,21,27,0.98)",
+    border: "1px solid rgba(255,122,184,0.35)",
+    borderRadius: "14px",
+    padding: "6px",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+    minWidth: "160px",
+  },
+  sortMenuItem: {
+    background: "transparent",
+    border: "none",
+    color: "#d4d6df",
+    padding: "10px 14px",
+    borderRadius: "10px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 600,
+    font: "inherit",
+    textAlign: "left",
+    whiteSpace: "nowrap",
+  },
+  sortMenuItemActive: {
+    background: "rgba(255,122,184,0.12)",
+    border: "none",
+    color: "#ffd7ea",
+    padding: "10px 14px",
+    borderRadius: "10px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 700,
+    font: "inherit",
+    textAlign: "left",
+    whiteSpace: "nowrap",
+  },
+  colButtons: {
+    display: "flex",
+    gap: "4px",
+  },
+  colButton: {
+    border: "1px solid rgba(255,255,255,0.22)",
+    borderRadius: "10px",
+    background: "rgba(25,29,37,0.92)",
+    color: "#d4d6df",
+    width: "36px",
+    height: "40px",
+    boxSizing: "border-box",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 700,
+    font: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 1,
+  },
+  colButtonActive: {
+    border: "1px solid rgba(255,122,184,0.75)",
+    borderRadius: "10px",
+    background: "rgba(255,79,163,0.22)",
+    color: "#ffd7ea",
+    width: "36px",
+    height: "40px",
+    boxSizing: "border-box",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 700,
+    font: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 1,
+  },
 };

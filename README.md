@@ -25,7 +25,7 @@
 - ❤️ お気に入り管理
 - 🔍 フリーワード検索
 - 📤 CSV形式でエクスポート（バックアップ）
-- 📥 CSVからインポート（復元）
+- 📥 CSVまたはZIPからインポート（復元）
 
 ---
 
@@ -122,7 +122,8 @@ npm run dev
 
 ### 復元（インポート）
 
-- 「📥 Import」ボタンからCSVファイルを選ぶと読み込まれます
+- 「📥 Import」ボタンからCSVまたはZIPファイルを選ぶと読み込まれます
+- ZIPを選ぶとサムネイル画像も一緒に復元されます
 
 ---
 
@@ -164,7 +165,7 @@ It runs in your browser and stores everything **locally on your own PC**. Nothin
 - ❤️ Mark favorites
 - 🔍 Free-word search
 - 📤 Export to CSV (backup)
-- 📥 Import from CSV (restore)
+- 📥 Import from CSV or ZIP (restore)
 
 ---
 
@@ -259,7 +260,8 @@ Then open `http://localhost:5173` in your browser.
 
 ### Restore (Import)
 
-- Click **📥 Import** and select a CSV file to load your prompts back
+- Click **📥 Import** and select a CSV or ZIP file to restore your prompts
+- Selecting a ZIP file will also restore thumbnail images
 
 ---
 
@@ -301,7 +303,7 @@ MIT License © 2026 PuniQ
 - ❤️ 加入最愛
 - 🔍 關鍵字搜尋
 - 📤 匯出為 CSV（備份）
-- 📥 從 CSV 匯入（還原）
+- 📥 從 CSV 或 ZIP 匯入（還原）
 
 ---
 
@@ -396,7 +398,8 @@ npm run dev
 
 ### 還原（匯入）
 
-- 點擊「📥 Import」按鈕，選擇 CSV 檔案即可匯入
+- 點擊「📥 Import」按鈕，選擇 CSV 或 ZIP 檔案即可匯入
+- 選擇 ZIP 檔案時，縮圖圖片也會一併還原
 
 ---
 
@@ -438,7 +441,7 @@ La aplicación funciona en tu navegador y guarda todo **únicamente en tu propio
 - ❤️ Marcar favoritos
 - 🔍 Búsqueda por palabras clave
 - 📤 Exportar a CSV (copia de seguridad)
-- 📥 Importar desde CSV (restaurar)
+- 📥 Importar desde CSV o ZIP (restaurar)
 
 ---
 
@@ -533,7 +536,8 @@ Luego abre `http://localhost:5173` en tu navegador.
 
 ### Restaurar (Importar)
 
-- Haz clic en **📥 Import** y selecciona un archivo CSV para recuperar tus prompts
+- Haz clic en **📥 Import** y selecciona un archivo CSV o ZIP para recuperar tus prompts
+- Si seleccionas un ZIP, las imágenes en miniatura también se restaurarán
 
 ---
 
