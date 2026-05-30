@@ -4,6 +4,10 @@ import JSZip from "jszip";
 const STORAGE_KEY = "puniq_prompt_asset_manager_v1";
 const DB_NAME = "puniq_prompt_asset_manager_images";
 const STORE_NAME = "images";
+const EXPORT_THUMBNAILS_DIR = "thumbnails";
+const DESKTOP_SPLIT_MIN_WIDTH = 1280;
+const MOBILE_BREAKPOINT = 900;
+const APP_VERSION = "v1.3.0";
 
 const sampleItems = [
   {
@@ -42,6 +46,30 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState(() => localStorage.getItem("puniq_sort_order") || "newest");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [colCount, setColCount] = useState(() => Number(localStorage.getItem("puniq_col_count")) || 4);
+  const [viewportWidth, setViewportWidth] = useState(() => {
+    if (typeof window === "undefined") return DESKTOP_SPLIT_MIN_WIDTH;
+    return window.innerWidth;
+  });
+  const [isDesktopSplit, setIsDesktopSplit] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth >= DESKTOP_SPLIT_MIN_WIDTH;
+  });
+  const isMobileView = viewportWidth < MOBILE_BREAKPOINT;
+  const displayColCount = isMobileView ? 2 : colCount;
+  const colOptions = [4, 5, 6, 7, 8];
+  const selectedColButton = colCount;
+  const useDenseCardButtons =
+    (displayColCount >= 7) ||
+    (displayColCount >= 6 && viewportWidth < 1700) ||
+    (displayColCount >= 5 && viewportWidth < 1300);
+  const sortOrderLabel =
+    sortOrder === "newest"
+      ? "新しい順"
+      : sortOrder === "oldest"
+        ? "古い順"
+        : sortOrder === "favorite"
+          ? "お気に入り優先"
+          : "タイトル順";
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -84,6 +112,17 @@ export default function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [sortMenuOpen]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+      setIsDesktopSplit(window.innerWidth >= DESKTOP_SPLIT_MIN_WIDTH);
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   function showStatus(message) {
     setStatus(message);
@@ -216,20 +255,33 @@ export default function App() {
 
     try {
       const id = editingId || makeSafeId();
+      const hasImagePreview = Boolean(form.imagePreview);
       const newItem = {
         id,
         title: form.title.trim() || "無題プロンプト",
         tags: parseTags([...parseTags(form.tagsText), (form.tagDraft || "").trim()].filter(Boolean).join(", ")),
         positive: form.positive,
         negative: form.negative,
-        hasImage: Boolean(form.imagePreview),
+        hasImage: hasImagePreview,
         favorite: false,
         createdAt: new Date().toLocaleString(),
       };
 
-      if (form.imagePreview) {
+      if (hasImagePreview) {
         await saveImage(id, form.imagePreview);
+      } else if (editingId) {
+        await deleteImage(id);
       }
+
+      setImageMap((current) => {
+        const next = { ...current };
+        if (hasImagePreview) {
+          next[id] = form.imagePreview;
+        } else {
+          delete next[id];
+        }
+        return next;
+      });
 
       setItems((current) => {
         if (editingId) {
@@ -286,6 +338,7 @@ export default function App() {
       const id = makeSafeId();
       const pendingTags = [...parseTags(form.tagsText), (form.tagDraft || "").trim()]
         .filter(Boolean);
+      const hasImagePreview = Boolean(form.imagePreview);
 
       const newItem = {
         id,
@@ -293,13 +346,17 @@ export default function App() {
         tags: parseTags(pendingTags.join(", ")),
         positive: form.positive,
         negative: form.negative,
-        hasImage: Boolean(form.imagePreview),
+        hasImage: hasImagePreview,
         favorite: false,
         createdAt: new Date().toLocaleString(),
       };
 
-      if (form.imagePreview) {
+      if (hasImagePreview) {
         await saveImage(id, form.imagePreview);
+        setImageMap((current) => ({
+          ...current,
+          [id]: form.imagePreview,
+        }));
       }
 
       setItems((current) => [newItem, ...current]);
@@ -418,20 +475,6 @@ export default function App() {
       .slice(0, 80);
   }
 
-  function dataUrlToBlob(dataUrl) {
-    const [meta, base64] = dataUrl.split(",");
-    const mimeMatch = meta.match(/data:(.*?);base64/);
-    const mime = mimeMatch ? mimeMatch[1] : "image/jpeg";
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-
-    return new Blob([bytes], { type: mime });
-  }
-
   async function buildExportCsvRows(useImageFileName = false) {
     const header = ["タイトル", "PositivePrompt", "NegativePrompt", "タグ", "サムネイル画像", "お気に入り"];
     const rows = [header.map(escapeCsvValue).join(",")];
@@ -465,7 +508,7 @@ export default function App() {
           item.positive || "",
           item.negative || "",
           (item.tags || []).join("、"),
-          useImageFileName ? imageFileName : image || "",
+          useImageFileName && imageFileName ? `${EXPORT_THUMBNAILS_DIR}/${imageFileName}` : image || "",
           item.favorite ? "true" : "false",
         ]
           .map(escapeCsvValue)
@@ -482,44 +525,17 @@ export default function App() {
   async function exportPromptsCsv() {
     const timestamp = formatExportTimestamp();
     const csvFileName = `${timestamp}_export.csv`;
+    const exportFolderName = timestamp + "_export";
 
     try {
-      if (window.showDirectoryPicker) {
-        const rootHandle = await window.showDirectoryPicker();
-        const { csv, images } = await buildExportCsvRows(true);
-
-        const exportFolderName = timestamp + "_export";
-        const exportFolder = await rootHandle.getDirectoryHandle(exportFolderName, { create: true });
-
-        const csvHandle = await exportFolder.getFileHandle(csvFileName, { create: true });
-        const csvWritable = await csvHandle.createWritable();
-        await csvWritable.write(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-        await csvWritable.close();
-
-        if (images.length > 0) {
-          const thumbFolder = await exportFolder.getDirectoryHandle("thumbnails", { create: true });
-          for (const image of images) {
-            const imageHandle = await thumbFolder.getFileHandle(image.fileName, { create: true });
-            const imageWritable = await imageHandle.createWritable();
-            await imageWritable.write(dataUrlToBlob(image.dataUrl));
-            await imageWritable.close();
-          }
-        }
-
-        showStatus("CSVと画像をエクスポートしました");
-        return;
-      }
-
-      // showDirectoryPicker非対応ブラウザ（Brave等）はZIPでダウンロード
       const { csv, images } = await buildExportCsvRows(true);
       const zip = new JSZip();
-      const exportFolderName = timestamp + "_export";
       const folder = zip.folder(exportFolderName);
 
       folder.file(csvFileName, new Blob([csv], { type: "text/csv;charset=utf-8" }));
 
       if (images.length > 0) {
-        const thumbFolder = folder.folder("thumbnails");
+        const thumbFolder = folder.folder(EXPORT_THUMBNAILS_DIR);
         for (const image of images) {
           const base64 = image.dataUrl.split(",")[1];
           thumbFolder.file(image.fileName, base64, { base64: true });
@@ -563,17 +579,19 @@ export default function App() {
           return;
         }
 
-        // thumbnails/フォルダの画像をファイル名→data URLのマップに変換
+        // thumbnails/フォルダの画像をファイル名/相対パス→data URLのマップに変換
         const thumbMap = {};
         for (const [path, zipEntry] of Object.entries(zip.files)) {
-          if (!zipEntry.dir && path.includes("thumbnails/")) {
-            const fileName = path.split("/").pop();
+          const normalizedPath = path.replace(/\\/g, "/");
+          if (!zipEntry.dir && normalizedPath.includes(`${EXPORT_THUMBNAILS_DIR}/`)) {
+            const fileName = normalizedPath.split("/").pop();
             const blob = await zipEntry.async("blob");
             const dataUrl = await new Promise((resolve) => {
               const reader = new FileReader();
               reader.onload = () => resolve(reader.result);
               reader.readAsDataURL(blob);
             });
+            thumbMap[normalizedPath] = dataUrl;
             thumbMap[fileName] = dataUrl;
           }
         }
@@ -588,10 +606,15 @@ export default function App() {
 
           // data URLかファイル名かを判定
           let validImage = "";
-          if (imageField && imageField.startsWith("data:")) {
-            validImage = imageField;
-          } else if (imageField && thumbMap[imageField]) {
-            validImage = thumbMap[imageField];
+          const normalizedImageField = String(imageField || "").trim().replace(/\\/g, "/");
+          if (normalizedImageField && normalizedImageField.startsWith("data:")) {
+            validImage = normalizedImageField;
+          } else if (normalizedImageField) {
+            const baseName = normalizedImageField.split("/").pop();
+            validImage =
+              thumbMap[normalizedImageField] ||
+              thumbMap[baseName] ||
+              "";
           }
 
           const newItem = {
@@ -657,17 +680,18 @@ export default function App() {
 
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
+    <div style={isMobileView ? { ...styles.page, ...styles.pageMobile } : styles.page}>
+      <header style={isMobileView ? { ...styles.header, ...styles.headerMobile } : styles.header}>
         <div>
-          <h1 style={styles.title}>
-            <span style={styles.brand}>PuniQ</span> Prompt Asset Manager
+          <h1 style={isMobileView ? { ...styles.title, ...styles.titleMobile } : styles.title}>
+            <span style={styles.brand}>PuniQ</span> Prompt Asset Manager{" "}
+            <span style={styles.versionBadge}>{APP_VERSION}</span>
           </h1>
-          <p style={styles.subtitle}>AIイラスト用Prompt Assetを保存・検索・管理</p>
+          <p style={isMobileView ? { ...styles.subtitle, ...styles.subtitleMobile } : styles.subtitle}>AIイラスト用Prompt Assetを保存・検索・管理</p>
         </div>
 
-        <div style={styles.headerTools}>
-          <div style={styles.searchWrap}>
+        <div style={isMobileView ? { ...styles.headerTools, ...styles.headerToolsMobile } : styles.headerTools}>
+          <div style={isMobileView ? { ...styles.searchWrap, ...styles.searchWrapMobile } : styles.searchWrap}>
             <span style={styles.searchIcon}>🔎</span>
             <input
               value={query}
@@ -677,7 +701,7 @@ export default function App() {
             />
           </div>
 
-          <label style={styles.toolButton}>
+          <label style={isMobileView ? { ...styles.toolButton, ...styles.toolButtonMobile } : styles.toolButton}>
             📥 Import
             <input
               type="file"
@@ -690,9 +714,10 @@ export default function App() {
             />
           </label>
 
-          <button type="button" onClick={exportPromptsCsv} style={styles.toolButton}>
+          <button type="button" onClick={exportPromptsCsv} style={isMobileView ? { ...styles.toolButton, ...styles.toolButtonMobile } : styles.toolButton}>
             📤 Export
           </button>
+
         </div>
       </header>
 
@@ -725,10 +750,19 @@ export default function App() {
         </div>
       )}
 
-      <section style={styles.formArea}>
-        <h2 style={styles.sectionTitle}>プロンプト記入エリア</h2>
+      <div style={isDesktopSplit ? styles.workspaceDesktop : styles.workspaceStack}>
+        <section
+          style={
+            isDesktopSplit
+              ? { ...styles.formArea, ...styles.formAreaDesktop }
+              : isMobileView
+                ? { ...styles.formArea, ...styles.formAreaMobile }
+                : styles.formArea
+          }
+        >
+          <h2 style={styles.sectionTitle}>プロンプト記入エリア</h2>
 
-        <form onSubmit={savePrompt} style={styles.form}>
+          <form onSubmit={savePrompt} style={styles.form}>
           <label style={styles.label}>
             <span style={styles.labelText}>タイトル</span>
             <input
@@ -792,7 +826,6 @@ export default function App() {
           </label>
 
           <div style={styles.bottomRow}>
-            <div />
             <div style={styles.imageSelectArea}>
               <div style={styles.thumbnailPickerWrap}>
                 <label style={form.imagePreview ? styles.fileLabelSelected : styles.fileLabel}>
@@ -855,158 +888,189 @@ export default function App() {
               )}
             </div>
           </div>
-        </form>
-      </section>
+          </form>
+        </section>
 
-      <div style={styles.divider}>
-        <span style={styles.dividerText}>保存したプロンプト一覧</span>
-        <button
-          type="button"
-          onClick={() => setOnlyFavorite((value) => !value)}
-          style={onlyFavorite ? styles.favoriteFilterButtonActive : styles.favoriteFilterButton}
-        >
-          ❤ お気に入り
-        </button>
-
-        <div style={{ flex: 1 }} />
-
-        <div style={styles.sortWrap} data-sort-wrap="">
-          <button
-            type="button"
-            onClick={() => setSortMenuOpen((v) => !v)}
-            style={styles.sortButton}
+        <section style={styles.listArea}>
+          <div
+            style={
+              isMobileView
+                ? { ...styles.divider, ...styles.dividerMobile }
+                : isDesktopSplit
+                  ? { ...styles.divider, ...styles.dividerDesktop }
+                  : styles.divider
+            }
           >
-            🔀 {sortOrder === "newest" ? "新しい順" : sortOrder === "oldest" ? "古い順" : sortOrder === "favorite" ? "お気に入り優先" : "タイトル順"}
-          </button>
-          {sortMenuOpen && (
-            <div style={styles.sortMenu}>
-              {[
-                { key: "newest", label: "新しい順" },
-                { key: "oldest", label: "古い順" },
-                { key: "favorite", label: "お気に入り優先" },
-                { key: "title", label: "タイトル順" },
-              ].map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => {
-                    setSortOrder(key);
-                    localStorage.setItem("puniq_sort_order", key);
-                    setSortMenuOpen(false);
-                  }}
-                  style={sortOrder === key ? styles.sortMenuItemActive : styles.sortMenuItem}
-                >
-                  {sortOrder === key ? "✅ " : "　"}{label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div style={styles.colButtons}>
-          {[4, 5, 6].map((n) => (
+            <span style={isMobileView ? { ...styles.dividerText, ...styles.dividerTextMobile } : styles.dividerText}>保存したプロンプト一覧</span>
             <button
-              key={n}
               type="button"
-              onClick={() => {
-                setColCount(n);
-                localStorage.setItem("puniq_col_count", n);
-              }}
-              style={colCount === n ? styles.colButtonActive : styles.colButton}
+              onClick={() => setOnlyFavorite((value) => !value)}
+              style={
+                isMobileView
+                  ? (onlyFavorite
+                    ? { ...styles.favoriteFilterButtonActive, ...styles.favoriteFilterButtonMobile }
+                    : { ...styles.favoriteFilterButton, ...styles.favoriteFilterButtonMobile })
+                  : (onlyFavorite ? styles.favoriteFilterButtonActive : styles.favoriteFilterButton)
+              }
             >
-              {n}
+              ❤ お気に入り
             </button>
-          ))}
-        </div>
-      </div>
 
-      <main style={{ ...styles.gallery, gridTemplateColumns: `repeat(${colCount}, 1fr)` }}>
-        {filtered.map((item) => (
-          <article key={item.id} style={styles.card}>
-            {/* サムネイル */}
-            <div style={styles.cardThumb}>
-              {imageMap[item.id] ? (
-                <img src={imageMap[item.id]} alt="" style={styles.cardFullImage} />
-              ) : (
-                <div style={styles.noImageFull}>No Thumbnail</div>
+            <div style={{ flex: 1 }} />
+
+            <div style={styles.sortWrap} data-sort-wrap="">
+              <button
+                type="button"
+                onClick={() => setSortMenuOpen((v) => !v)}
+                style={isMobileView ? { ...styles.sortButton, ...styles.sortButtonMobile } : styles.sortButton}
+              >
+                {isMobileView ? "🔀 並び替え" : `🔀 ${sortOrderLabel}`}
+              </button>
+              {sortMenuOpen && (
+                <div style={styles.sortMenu}>
+                  {[
+                    { key: "newest", label: "新しい順" },
+                    { key: "oldest", label: "古い順" },
+                    { key: "favorite", label: "お気に入り優先" },
+                    { key: "title", label: "タイトル順" },
+                  ].map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setSortOrder(key);
+                        localStorage.setItem("puniq_sort_order", key);
+                        setSortMenuOpen(false);
+                      }}
+                      style={sortOrder === key ? styles.sortMenuItemActive : styles.sortMenuItem}
+                    >
+                      {sortOrder === key ? "✅ " : "　"}{label}
+                    </button>
+                  ))}
+                </div>
               )}
-              {item.favorite && (() => {
-                const sz = colCount <= 4 ? 80 : colCount === 5 ? 66 : 52;
-                const hs = colCount <= 4 ? 38 : colCount === 5 ? 31 : 24;
-                const hx = sz / 3 - hs / 2;
-                const hy = sz / 3 - hs / 2;
-                return (
-                  <svg
-                    style={styles.favSvg}
-                    width={sz}
-                    height={sz}
-                    viewBox={`0 0 ${sz} ${sz}`}
-                    xmlns="http://www.w3.org/2000/svg"
+            </div>
+
+            {!isMobileView && (
+              <div style={styles.colButtons}>
+                {colOptions.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => {
+                      setColCount(n);
+                      localStorage.setItem("puniq_col_count", n);
+                    }}
+                    style={selectedColButton === n ? styles.colButtonActive : styles.colButton}
                   >
-                    <polygon
-                      points={`0,0 ${sz},0 0,${sz}`}
-                      fill="rgba(255,79,163,0.85)"
-                    />
-                    <path
-                      transform={`translate(${hx}, ${hy}) scale(${hs / 24})`}
-                      d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                      fill="white"
-                    />
-                  </svg>
-                );
-              })()}
-            </div>
-
-            {/* タイトル・日時 */}
-            <div style={styles.cardInfo}>
-              <div style={{ ...styles.cardTitle, fontSize: colCount <= 4 ? "12px" : colCount === 5 ? "11px" : "10px" }}>{item.title}</div>
-              <div style={{ ...styles.date, fontSize: colCount <= 4 ? "10px" : "9px" }}>{item.createdAt}</div>
-            </div>
-
-            {/* アクションボタン */}
-            <div style={styles.cardActions}>
-              <div style={styles.cardActionRow}>
-                <button
-                  type="button"
-                  onClick={() => toggleFavorite(item.id)}
-                  style={item.favorite ? styles.cardIconButtonFav : styles.cardIconButtonNormal}
-                  title={item.favorite ? "お気に入り解除" : "お気に入りに追加"}
-                >
-                  ❤
-                </button>
-                <button
-                  onClick={() => editItem(item)}
-                  style={styles.cardIconButtonNormal}
-                  title="編集"
-                >
-                  📝
-                </button>
-                <button
-                  onClick={() => setConfirmDeleteId(item.id)}
-                  style={styles.cardIconButtonDelete}
-                  title="削除"
-                >
-                  🗑️
-                </button>
+                    {n}
+                  </button>
+                ))}
               </div>
-              <div style={styles.cardCopyRow}>
-                <button
-                  onClick={() => copyText(item.positive, "Positive Prompt")}
-                  style={styles.cardCopyButton}
-                >
-                  📋 Pos
-                </button>
-                <button
-                  onClick={() => copyText(item.negative, "Negative Prompt")}
-                  style={styles.cardCopyButton}
-                >
-                  📋 Neg
-                </button>
-              </div>
-            </div>
-          </article>
-        ))}
-      </main>
+            )}
+          </div>
+
+          <main style={{ ...styles.gallery, gridTemplateColumns: `repeat(${displayColCount}, 1fr)` }}>
+            {filtered.map((item) => (
+              <article key={item.id} style={styles.card}>
+                {/* サムネイル */}
+                <div style={styles.cardThumb}>
+                  {imageMap[item.id] ? (
+                    <img src={imageMap[item.id]} alt="" style={styles.cardFullImage} />
+                  ) : (
+                    <div style={styles.noImageFull}>No Thumbnail</div>
+                  )}
+                  {item.favorite && (() => {
+                    const sz = displayColCount <= 4 ? 80 : displayColCount === 5 ? 66 : 52;
+                    const hs = displayColCount <= 4 ? 38 : displayColCount === 5 ? 31 : 24;
+                    const hx = sz / 3 - hs / 2;
+                    const hy = sz / 3 - hs / 2;
+                    return (
+                      <svg
+                        style={styles.favSvg}
+                        width={sz}
+                        height={sz}
+                        viewBox={`0 0 ${sz} ${sz}`}
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <polygon
+                          points={`0,0 ${sz},0 0,${sz}`}
+                          fill="rgba(255,79,163,0.85)"
+                        />
+                        <path
+                          transform={`translate(${hx}, ${hy}) scale(${hs / 24})`}
+                          d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                          fill="white"
+                        />
+                      </svg>
+                    );
+                  })()}
+                </div>
+
+                {/* タイトル・日時 */}
+                <div style={styles.cardInfo}>
+                  <div style={{ ...styles.cardTitle, fontSize: displayColCount <= 4 ? "12px" : displayColCount === 5 ? "11px" : "10px" }}>{item.title}</div>
+                  <div style={{ ...styles.date, fontSize: displayColCount <= 4 ? "10px" : "9px" }}>{item.createdAt}</div>
+                </div>
+
+                {/* アクションボタン */}
+                <div style={styles.cardActions}>
+                  <div style={useDenseCardButtons ? { ...styles.cardActionRow, ...styles.cardActionRowDense } : styles.cardActionRow}>
+                    <button
+                      type="button"
+                      onClick={() => toggleFavorite(item.id)}
+                      style={
+                        item.favorite
+                          ? (useDenseCardButtons ? { ...styles.cardIconButtonFav, ...styles.cardIconButtonDense } : styles.cardIconButtonFav)
+                          : (useDenseCardButtons ? { ...styles.cardIconButtonNormal, ...styles.cardIconButtonDense } : styles.cardIconButtonNormal)
+                      }
+                      title={item.favorite ? "お気に入り解除" : "お気に入りに追加"}
+                    >
+                      ❤
+                    </button>
+                    <button
+                      onClick={() => editItem(item)}
+                      style={useDenseCardButtons ? { ...styles.cardIconButtonNormal, ...styles.cardIconButtonDense } : styles.cardIconButtonNormal}
+                      title="編集"
+                    >
+                      📝
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(item.id)}
+                      style={useDenseCardButtons ? { ...styles.cardIconButtonDelete, ...styles.cardIconButtonDense } : styles.cardIconButtonDelete}
+                      title="削除"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                  <div style={useDenseCardButtons ? { ...styles.cardCopyRow, ...styles.cardCopyRowDense } : styles.cardCopyRow}>
+                    <button
+                      onClick={() => copyText(item.positive, "Positive Prompt")}
+                      style={
+                        useDenseCardButtons
+                          ? styles.cardCopyButtonMicro
+                          : (displayColCount >= 6 ? styles.cardCopyButtonCompact : styles.cardCopyButton)
+                      }
+                    >
+                      {useDenseCardButtons ? "Pos" : "📋 Pos"}
+                    </button>
+                    <button
+                      onClick={() => copyText(item.negative, "Negative Prompt")}
+                      style={
+                        useDenseCardButtons
+                          ? styles.cardCopyButtonMicro
+                          : (displayColCount >= 6 ? styles.cardCopyButtonCompact : styles.cardCopyButton)
+                      }
+                    >
+                      {useDenseCardButtons ? "Neg" : "📋 Neg"}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </main>
+        </section>
+      </div>
     </div>
   );
 }
@@ -1145,6 +1209,12 @@ const styles = {
     lineHeight: 1,
     verticalAlign: "baseline",
   },
+  favoriteFilterButtonMobile: {
+    height: "36px",
+    padding: "0 10px",
+    fontSize: "12px",
+    borderRadius: "10px",
+  },
 
   headerTools: {
     display: "flex",
@@ -1154,6 +1224,13 @@ const styles = {
     justifyContent: "flex-end",
     width: "52%",
     minWidth: "520px",
+  },
+  headerToolsMobile: {
+    width: "100%",
+    minWidth: 0,
+    justifyContent: "flex-start",
+    flexWrap: "wrap",
+    gap: "8px",
   },
 
 
@@ -1176,6 +1253,10 @@ const styles = {
     whiteSpace: "nowrap",
     lineHeight: 1,
   },
+  toolButtonMobile: {
+    flex: "1 1 120px",
+    minWidth: 0,
+  },
 
 
 
@@ -1195,7 +1276,7 @@ const styles = {
 
   tagDraftInput: {
     flex: "1 1 160px",
-    minWidth: "140px",
+    minWidth: "80px",
     height: "30px",
     border: "none",
     outline: "none",
@@ -1217,9 +1298,12 @@ const styles = {
   tagGuide: {
     marginTop: "7px",
     color: "#858a96",
-    fontSize: "12px",
+    fontSize: "11px",
     textAlign: "left",
     paddingLeft: "2px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
 
 
@@ -1235,14 +1319,53 @@ const styles = {
     fontFamily:
       '"Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif',
   },
+  pageMobile: {
+    padding: "12px",
+    overflowX: "clip",
+  },
+  workspaceStack: {
+    display: "block",
+    minWidth: 0,
+  },
+  workspaceDesktop: {
+    display: "grid",
+    gridTemplateColumns: "clamp(360px, 42vw, 640px) minmax(0, 1fr)",
+    gap: "20px",
+    alignItems: "start",
+  },
   header: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: "20px",
     marginBottom: "14px",
+    position: "sticky",
+    top: 0,
+    zIndex: 40,
+    padding: "8px 0 12px",
+    background:
+      "radial-gradient(circle at top left, rgba(255,79,163,0.11), transparent 48%), linear-gradient(180deg, rgba(8,9,13,0.93) 0%, rgba(8,9,13,0.86) 72%, rgba(8,9,13,0.62) 100%)",
+    backdropFilter: "blur(6px)",
+  },
+  headerMobile: {
+    position: "static",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: "10px",
+    padding: "8px 0 10px",
+    background: "transparent",
+    backdropFilter: "none",
   },
   title: { margin: 0, fontSize: "32px", lineHeight: 1.1 },
+  titleMobile: { fontSize: "26px" },
+  versionBadge: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#a9acb7",
+    verticalAlign: "middle",
+    marginLeft: "10px",
+    letterSpacing: "0.08em",
+  },
   brand: { color: "#ff7ab8" },
   subtitle: {
     margin: "10px 0 0 0",
@@ -1250,6 +1373,10 @@ const styles = {
     fontSize: "16px",
     textAlign: "left",
     paddingLeft: "0px",
+  },
+  subtitleMobile: {
+    fontSize: "14px",
+    marginTop: "6px",
   },
   searchWrap: {
     flex: "1 1 300px",
@@ -1265,6 +1392,11 @@ const styles = {
     padding: "0 12px",
     height: "40px",
   
+  },
+  searchWrapMobile: {
+    flex: "1 1 100%",
+    minWidth: 0,
+    maxWidth: "100%",
   },
   searchIcon: { opacity: 0.75 },
   searchInput: {
@@ -1354,21 +1486,39 @@ const styles = {
     boxShadow:
       "0 0 0 1px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.4)",
   },
-  sectionTitle: { margin: "0 0 18px", fontSize: "20px" },
-  form: { display: "grid", gap: "14px" },
+  formAreaMobile: {
+    padding: "14px",
+    overflowX: "hidden",
+  },
+  formAreaDesktop: {
+    marginBottom: 0,
+    position: "sticky",
+    top: "112px",
+    maxHeight: "calc(100vh - 126px)",
+    overflowY: "auto",
+  },
+  sectionTitle: { margin: "0 0 14px", fontSize: "17px", textAlign: "left" },
+  form: { display: "grid", gap: "14px", width: "100%", minWidth: 0 },
   label: {
-    display: "grid",
-    gridTemplateColumns: "150px minmax(0, 1fr)",
-    alignItems: "start",
-    gap: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    width: "100%",
+    minWidth: 0,
   },
   labelText: {
+    display: "block",
     fontWeight: 700,
-    paddingTop: "10px",
+    fontSize: "12px",
+    textAlign: "left",
+    lineHeight: 1.3,
+    letterSpacing: "0.02em",
     color: "#f3f3f5",
   },
   input: {
     width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
     boxSizing: "border-box",
     height: "44px",
     border: "1px solid #353842",
@@ -1381,8 +1531,10 @@ const styles = {
   },
   textarea: {
     width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
     boxSizing: "border-box",
-    minHeight: "100px",
+    minHeight: "140px",
     resize: "vertical",
     border: "1px solid #353842",
     borderRadius: "12px",
@@ -1395,8 +1547,10 @@ const styles = {
   },
   textareaSmall: {
     width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
     boxSizing: "border-box",
-    minHeight: "76px",
+    minHeight: "110px",
     resize: "vertical",
     border: "1px solid #353842",
     borderRadius: "12px",
@@ -1408,36 +1562,44 @@ const styles = {
     lineHeight: 1.5,
   },
   bottomRow: {
-    display: "grid",
-    gridTemplateColumns: "150px minmax(0, 1fr) auto",
-    alignItems: "start",
+    display: "flex",
+    alignItems: "flex-start",
+    flexWrap: "wrap",
     gap: "14px",
+    width: "100%",
+    minWidth: 0,
   },
   imageSelectArea: {
     display: "grid",
     gap: "10px",
+    flex: "1 1 320px",
+    minWidth: 0,
+    width: "100%",
   },
   thumbnailPickerWrap: {
     position: "relative",
   },
   fileLabelSelected: {
     boxSizing: "border-box",
-    minHeight: "280px",
+    width: "100%",
+    minHeight: "0",
     border: "1px solid rgba(255,122,184,0.65)",
     borderRadius: "14px",
     background: "rgba(255,122,184,0.08)",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     gap: "8px",
     cursor: "pointer",
     padding: "12px",
   },
   uploadPreviewImage: {
-    width: "420px",
-    maxWidth: "100%",
-    height: "220px",
+    width: "100%",
+    maxWidth: "420px",
+    aspectRatio: "4 / 3",
+    height: "auto",
+    maxHeight: "220px",
     objectFit: "contain",
     borderRadius: "10px",
     display: "block",
@@ -1461,6 +1623,7 @@ const styles = {
   },
   fileLabel: {
     boxSizing: "border-box",
+    width: "100%",
     minHeight: "72px",
     border: "1px dashed #565a66",
     borderRadius: "14px",
@@ -1479,10 +1642,14 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
-    alignItems: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 190px",
+    minWidth: 0,
   },
   saveAsButton: {
     minWidth: "170px",
+    width: "170px",
     height: "46px",
     border: "1px solid rgba(120,180,255,0.45)",
     borderRadius: "14px",
@@ -1494,6 +1661,7 @@ const styles = {
   },
   saveButton: {
     minWidth: "170px",
+    width: "170px",
     height: "50px",
     border: "none",
     borderRadius: "14px",
@@ -1511,7 +1679,30 @@ const styles = {
     borderTop: "1px solid rgba(255,255,255,0.16)",
     paddingTop: "18px",
   },
+  dividerDesktop: {
+    margin: "0 0 18px",
+    borderTop: "none",
+    paddingTop: 0,
+    alignItems: "center",
+    flexWrap: "wrap",
+    rowGap: "10px",
+  },
+  dividerMobile: {
+    alignItems: "center",
+    flexWrap: "wrap",
+    rowGap: "8px",
+    columnGap: "8px",
+    margin: "8px 0 14px",
+    paddingTop: "12px",
+  },
+  listArea: {
+    minWidth: 0,
+  },
   dividerText: { whiteSpace: "nowrap", color: "#f1f1f4", fontWeight: 700 },
+  dividerTextMobile: {
+    flex: "1 1 100%",
+    fontSize: "18px",
+  },
   gallery: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
@@ -1553,12 +1744,13 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "3px",
-    minHeight: "48px",
+    minHeight: "56px",
   },
   cardTitle: {
     fontWeight: 700,
     fontSize: "12px",
     lineHeight: 1.3,
+    minHeight: "2.6em",
     whiteSpace: "normal",
     overflow: "hidden",
     display: "-webkit-box",
@@ -1572,15 +1764,24 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "5px",
+    marginTop: "auto",
   },
   cardActionRow: {
     display: "flex",
     gap: "4px",
+    minWidth: 0,
+  },
+  cardActionRowDense: {
+    gap: "2px",
   },
   cardCopyRow: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
     gap: "4px",
+    minWidth: 0,
+  },
+  cardCopyRowDense: {
+    gap: "2px",
   },
   favSvg: {
     position: "absolute",
@@ -1628,20 +1829,72 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
   },
+  cardIconButtonDense: {
+    height: "28px",
+    fontSize: "12px",
+    lineHeight: 1.2,
+    padding: 0,
+  },
   cardCopyButton: {
     height: "30px",
+    minWidth: 0,
+    padding: "0 6px",
     borderRadius: "8px",
     border: "1px solid #343844",
     background: "rgba(15,18,26,0.88)",
     color: "#fff",
     fontSize: "11px",
     fontWeight: 700,
-    font: "inherit",
+    fontFamily: "inherit",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     gap: "3px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  cardCopyButtonMicro: {
+    height: "28px",
+    minWidth: 0,
+    borderRadius: "8px",
+    border: "1px solid #343844",
+    background: "rgba(15,18,26,0.88)",
+    color: "#fff",
+    fontSize: "9px",
+    fontWeight: 700,
+    fontFamily: "inherit",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 2px",
+    gap: "1px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    lineHeight: 1.2,
+  },
+  cardCopyButtonCompact: {
+    height: "30px",
+    minWidth: 0,
+    borderRadius: "8px",
+    border: "1px solid #343844",
+    background: "rgba(15,18,26,0.88)",
+    color: "#fff",
+    fontSize: "10px",
+    fontWeight: 700,
+    fontFamily: "inherit",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 4px",
+    gap: "2px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   buttons: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px" },
   sortWrap: { position: "relative" },
@@ -1662,6 +1915,12 @@ const styles = {
     gap: "6px",
     whiteSpace: "nowrap",
     lineHeight: 1,
+  },
+  sortButtonMobile: {
+    height: "36px",
+    padding: "0 10px",
+    fontSize: "12px",
+    borderRadius: "10px",
   },
   sortMenu: {
     position: "absolute",
@@ -1707,6 +1966,7 @@ const styles = {
   colButtons: {
     display: "flex",
     gap: "4px",
+    flexWrap: "wrap",
   },
   colButton: {
     border: "1px solid rgba(255,255,255,0.22)",

@@ -5,7 +5,7 @@
 :: Please change the path below to match your environment
 :: 例 / Example: C:\Users\YourName\Documents\puniq-prompt-asset-manager
 :: ======================================================
-cd /d C:\Users\Rainb\Downloads\puniq_prompt_gallery_prototype\puniq-prompt-asset-manager
+cd /d "%~dp0"
 
 start cmd /c "npm run dev"
 timeout /t 1 /nobreak > nul
