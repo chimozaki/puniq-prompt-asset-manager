@@ -4,10 +4,24 @@ import JSZip from "jszip";
 const STORAGE_KEY = "puniq_prompt_asset_manager_v1";
 const DB_NAME = "puniq_prompt_asset_manager_images";
 const STORE_NAME = "images";
+const SORT_ORDER_KEY = "puniq_sort_order";
+const COL_COUNT_KEY = "puniq_col_count";
+const DEFAULT_SORT_ORDER = "newest";
+const DEFAULT_COL_COUNT = 4;
 const EXPORT_THUMBNAILS_DIR = "thumbnails";
 const DESKTOP_SPLIT_MIN_WIDTH = 1280;
 const MOBILE_BREAKPOINT = 900;
 const APP_VERSION = "v1.3.0";
+const EMPTY_FORM = {
+  title: "",
+  tagsText: "",
+  tagDraft: "",
+  positive: "",
+  negative: "",
+  imageFile: null,
+  imagePreview: "",
+  imageFileName: "",
+};
 
 const sampleItems = [
   {
@@ -28,24 +42,16 @@ export default function App() {
   const [items, setItems] = useState(sampleItems);
   const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
-  const [form, setForm] = useState({
-    title: "",
-    tagsText: "",
-    tagDraft: "",
-    positive: "",
-    negative: "",
-    imageFile: null,
-    imagePreview: "",
-    imageFileName: "",
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [imageMap, setImageMap] = useState({});
   const [status, setStatus] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [onlyFavorite, setOnlyFavorite] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const [sortOrder, setSortOrder] = useState(() => localStorage.getItem("puniq_sort_order") || "newest");
+  const [resetConfirmStep, setResetConfirmStep] = useState(0);
+  const [sortOrder, setSortOrder] = useState(() => localStorage.getItem(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
-  const [colCount, setColCount] = useState(() => Number(localStorage.getItem("puniq_col_count")) || 4);
+  const [colCount, setColCount] = useState(() => Number(localStorage.getItem(COL_COUNT_KEY)) || DEFAULT_COL_COUNT);
   const [viewportWidth, setViewportWidth] = useState(() => {
     if (typeof window === "undefined") return DESKTOP_SPLIT_MIN_WIDTH;
     return window.innerWidth;
@@ -291,16 +297,7 @@ export default function App() {
         }
         return [newItem, ...current];
       });
-      setForm({
-        title: "",
-        tagsText: "",
-        tagDraft: "",
-        positive: "",
-        negative: "",
-        imageFile: null,
-        imagePreview: "",
-        imageFileName: "",
-      });
+      setForm(EMPTY_FORM);
       setEditingId(null);
       showStatus(editingId ? "編集を保存しました" : "保存しました");
     } catch (error) {
@@ -361,16 +358,7 @@ export default function App() {
 
       setItems((current) => [newItem, ...current]);
       setEditingId(null);
-      setForm({
-        title: "",
-        tagsText: "",
-        tagDraft: "",
-        positive: "",
-        negative: "",
-        imageFile: null,
-        imagePreview: "",
-        imageFileName: "",
-      });
+      setForm(EMPTY_FORM);
       showStatus("新規として保存しました");
     } catch (error) {
       console.error(error);
@@ -396,6 +384,33 @@ export default function App() {
     });
     showStatus("削除しました");
   };
+
+  async function clearAllData() {
+    try {
+      await deleteAllImages();
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      localStorage.removeItem(SORT_ORDER_KEY);
+      localStorage.removeItem(COL_COUNT_KEY);
+
+      setItems([]);
+      setImageMap({});
+      setQuery("");
+      setForm(EMPTY_FORM);
+      setEditingId(null);
+      setOnlyFavorite(false);
+      setSortMenuOpen(false);
+      setConfirmDeleteId(null);
+      setSortOrder(DEFAULT_SORT_ORDER);
+      setColCount(DEFAULT_COL_COUNT);
+      setResetConfirmStep(0);
+
+      showStatus("全データを初期化しました");
+    } catch (error) {
+      console.error(error);
+      showStatus("初期化に失敗しました");
+    }
+  }
 
   const copyText = async (text, label = "Prompt") => {
     if (!text || !String(text).trim()) {
@@ -718,6 +733,18 @@ export default function App() {
             📤 Export
           </button>
 
+          <button
+            type="button"
+            onClick={() => setResetConfirmStep(1)}
+            style={
+              isMobileView
+                ? { ...styles.toolButton, ...styles.toolButtonMobile, ...styles.dangerToolButton }
+                : { ...styles.toolButton, ...styles.dangerToolButton }
+            }
+          >
+            ⚠️ 全データ初期化
+          </button>
+
         </div>
       </header>
 
@@ -746,6 +773,74 @@ export default function App() {
                 キャンセル
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {resetConfirmStep > 0 && (
+        <div style={styles.confirmOverlay}>
+          <div style={styles.confirmDialog}>
+            {resetConfirmStep === 1 ? (
+              <>
+                <p style={styles.confirmText}>⚠️ 全データ初期化の前にExport推奨です</p>
+                <p style={styles.confirmSubText}>
+                  保存済みのプロンプト・サムネイル・並び替え設定・列数設定が消えます。
+                </p>
+                <div style={styles.confirmButtons}>
+                  <button
+                    type="button"
+                    onClick={exportPromptsCsv}
+                    style={styles.confirmSupportButton}
+                  >
+                    先にExportする
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetConfirmStep(2)}
+                    style={styles.confirmProceedButton}
+                  >
+                    次へ進む
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResetConfirmStep(0)}
+                  style={styles.confirmCloseButton}
+                >
+                  キャンセル
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={styles.confirmText}>本当に全データを初期化しますか？</p>
+                <p style={styles.confirmSubTextStrong}>
+                  この操作は取り消せません。
+                </p>
+                <div style={styles.confirmButtons}>
+                  <button
+                    type="button"
+                    onClick={clearAllData}
+                    style={styles.confirmDeleteButton}
+                  >
+                    全データを初期化する
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetConfirmStep(1)}
+                    style={styles.confirmSupportButton}
+                  >
+                    戻る
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResetConfirmStep(0)}
+                  style={styles.confirmCloseButton}
+                >
+                  キャンセル
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -910,7 +1005,9 @@ export default function App() {
                   ? (onlyFavorite
                     ? { ...styles.favoriteFilterButtonActive, ...styles.favoriteFilterButtonMobile }
                     : { ...styles.favoriteFilterButton, ...styles.favoriteFilterButtonMobile })
-                  : (onlyFavorite ? styles.favoriteFilterButtonActive : styles.favoriteFilterButton)
+                  : (onlyFavorite
+                    ? { ...styles.favoriteFilterButtonActive, marginLeft: "8px" }
+                    : { ...styles.favoriteFilterButton, marginLeft: "8px" })
               }
             >
               ❤ お気に入り
@@ -939,7 +1036,7 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setSortOrder(key);
-                        localStorage.setItem("puniq_sort_order", key);
+                        localStorage.setItem(SORT_ORDER_KEY, key);
                         setSortMenuOpen(false);
                       }}
                       style={sortOrder === key ? styles.sortMenuItemActive : styles.sortMenuItem}
@@ -959,7 +1056,7 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setColCount(n);
-                      localStorage.setItem("puniq_col_count", n);
+                      localStorage.setItem(COL_COUNT_KEY, n);
                     }}
                     style={selectedColButton === n ? styles.colButtonActive : styles.colButton}
                   >
@@ -1143,8 +1240,14 @@ async function saveImage(id, dataUrl) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).put(dataUrl, id);
-    tx.oncomplete = resolve;
-    tx.onerror = reject;
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
@@ -1153,8 +1256,22 @@ async function getImage(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
     const request = tx.objectStore(STORE_NAME).get(id);
-    request.onsuccess = () => resolve(request.result || "");
-    request.onerror = reject;
+    let result = "";
+    request.onsuccess = () => {
+      result = request.result || "";
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve(result);
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
@@ -1163,8 +1280,23 @@ async function deleteImage(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).delete(id);
-    tx.oncomplete = resolve;
-    tx.onerror = reject;
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+function deleteAllImages() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error("Failed to delete IndexedDB"));
+    request.onblocked = () => reject(new Error("IndexedDB delete was blocked"));
   });
 }
 
@@ -1256,6 +1388,11 @@ const styles = {
   toolButtonMobile: {
     flex: "1 1 120px",
     minWidth: 0,
+  },
+  dangerToolButton: {
+    border: "1px solid rgba(255,98,126,0.55)",
+    background: "rgba(255,80,110,0.12)",
+    color: "#ffd6df",
   },
 
 
@@ -1449,10 +1586,45 @@ const styles = {
     fontWeight: 700,
     marginBottom: "22px",
   },
+  confirmSubText: {
+    color: "#c4c8d3",
+    fontSize: "13px",
+    lineHeight: 1.6,
+    margin: "-12px 0 18px",
+  },
+  confirmSubTextStrong: {
+    color: "#ff9bb4",
+    fontSize: "13px",
+    lineHeight: 1.5,
+    margin: "-12px 0 18px",
+    fontWeight: 700,
+  },
   confirmButtons: {
     display: "flex",
     gap: "12px",
     justifyContent: "center",
+  },
+  confirmSupportButton: {
+    flex: 1,
+    padding: "10px 0",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,122,184,0.35)",
+    background: "rgba(255,122,184,0.1)",
+    color: "#ffd7ea",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  confirmProceedButton: {
+    flex: 1,
+    padding: "10px 0",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,172,98,0.45)",
+    background: "rgba(255,172,98,0.14)",
+    color: "#ffe2c2",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
   },
   confirmDeleteButton: {
     flex: 1,
@@ -1473,6 +1645,18 @@ const styles = {
     background: "rgba(255,122,184,0.1)",
     color: "#ffd7ea",
     fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  confirmCloseButton: {
+    marginTop: "10px",
+    width: "100%",
+    padding: "10px 0",
+    borderRadius: "12px",
+    border: "1px solid rgba(120,128,146,0.45)",
+    background: "rgba(120,128,146,0.1)",
+    color: "#cfd2dc",
+    fontSize: "13px",
     fontWeight: 700,
     cursor: "pointer",
   },
