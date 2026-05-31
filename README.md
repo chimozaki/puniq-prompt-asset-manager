@@ -7,6 +7,7 @@
 ---
 
 <a name="日本語"></a>
+
 # 🇯🇵 日本語
 
 ## これは何？
@@ -61,7 +62,8 @@ npm install
 ```
 
 > 💡 **コマンドプロンプトの開き方：** スタートメニューで「cmd」と検索して開いてください。
-> 💡 **フォルダを開いた状態でアドレスバーに `cmd` と入力して Enter を押すと、そのフォルダでコマンドプロンプトを開けます。
+> 💡 \*\*フォルダを開いた状態でアドレスバーに `cmd` と入力して Enter を押すと、そのフォルダでコマンドプロンプトを開けます。
+
 ---
 
 #### ステップ3：アプリを起動する
@@ -117,12 +119,22 @@ npm run dev
 
 ## データはどこに保存される？
 
-| データ | 保存場所 |
-|---|---|
+| データ               | 保存場所                             |
+| -------------------- | ------------------------------------ |
 | プロンプトのテキスト | ブラウザのlocalStorage（パソコン内） |
-| サムネイル画像 | ブラウザのIndexedDB（パソコン内） |
+| サムネイル画像       | ブラウザのIndexedDB（パソコン内）    |
 
 > ⚠️ ブラウザのキャッシュをすべて削除するとデータが消えます。定期的にエクスポートしてバックアップを取ることをおすすめします。
+
+---
+
+## ☕ Support
+
+このプロジェクトが役に立った場合は、Ko-fiで今後の開発を応援していただけると嬉しいです。
+
+☕ https://ko-fi.com/puniq
+
+ご支援ありがとうございます！
 
 ---
 
@@ -133,6 +145,7 @@ MIT License © 2026 PuniQ
 ---
 
 <a name="english"></a>
+
 # 🇺🇸 English
 
 ## What is this?
@@ -245,12 +258,22 @@ Then open `http://localhost:5173` in your browser.
 
 ## Where is my data stored?
 
-| Data | Storage |
-|---|---|
-| Prompt text | Browser localStorage (on your PC) |
-| Thumbnail images | Browser IndexedDB (on your PC) |
+| Data             | Storage                           |
+| ---------------- | --------------------------------- |
+| Prompt text      | Browser localStorage (on your PC) |
+| Thumbnail images | Browser IndexedDB (on your PC)    |
 
 > ⚠️ Clearing your browser cache will delete your data. Export regularly to keep backups.
+
+---
+
+## ☕ Support
+
+If you find this project useful and would like to support future development, you can support me on Ko-fi.
+
+☕ https://ko-fi.com/puniq
+
+Thank you for your support!
 
 ---
 
@@ -261,6 +284,7 @@ MIT License © 2026 PuniQ
 ---
 
 <a name="繁體中文"></a>
+
 # 🇹🇼 繁體中文
 
 ## 這是什麼？
@@ -373,12 +397,22 @@ npm run dev
 
 ## 資料儲存在哪裡？
 
-| 資料 | 儲存位置 |
-|---|---|
+| 資料       | 儲存位置                          |
+| ---------- | --------------------------------- |
 | 提示詞文字 | 瀏覽器 localStorage（您的電腦內） |
-| 縮圖圖片 | 瀏覽器 IndexedDB（您的電腦內） |
+| 縮圖圖片   | 瀏覽器 IndexedDB（您的電腦內）    |
 
 > ⚠️ 清除瀏覽器快取將會刪除所有資料。請定期匯出備份。
+
+---
+
+## ☕ Support
+
+如果這個專案對您有幫助，歡迎透過 Ko-fi 支持後續開發。
+
+☕ https://ko-fi.com/puniq
+
+感謝您的支持！
 
 ---
 
@@ -389,6 +423,7 @@ MIT License © 2026 PuniQ
 ---
 
 <a name="español"></a>
+
 # 🇪🇸 Español
 
 ## ¿Qué es esto?
@@ -501,12 +536,22 @@ Luego abre `http://localhost:5173` en tu navegador.
 
 ## ¿Dónde se guardan los datos?
 
-| Datos | Almacenamiento |
-|---|---|
-| Texto de los prompts | localStorage del navegador (en tu ordenador) |
-| Imágenes en miniatura | IndexedDB del navegador (en tu ordenador) |
+| Datos                 | Almacenamiento                               |
+| --------------------- | -------------------------------------------- |
+| Texto de los prompts  | localStorage del navegador (en tu ordenador) |
+| Imágenes en miniatura | IndexedDB del navegador (en tu ordenador)    |
 
 > ⚠️ Si borras la caché del navegador, perderás todos los datos. Exporta regularmente para hacer copias de seguridad.
+
+---
+
+## ☕ Support
+
+Si este proyecto te resulta útil y deseas apoyar su desarrollo futuro, puedes apoyarme en Ko-fi.
+
+☕ https://ko-fi.com/puniq
+
+¡Muchas gracias por tu apoyo!
 
 ---
 
