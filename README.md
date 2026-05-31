@@ -1,5 +1,7 @@
 # 🎨 PuniQ Prompt Asset Manager
 
+![PuniQ Prompt Asset Manager](screenshot_exsample.png)
+
 **[日本語](#日本語) | [English](#english) | [繁體中文](#繁體中文) | [Español](#español)**
 
 ---
@@ -56,7 +58,7 @@
 このファイルを**右クリック → メモ帳で開く**と、以下のような行があります：
 
 ```
-cd /d C:\Users\YourName\Documents\puniq-prompt-asset-manager
+cd /d "%~dp0"
 ```
 
 この部分を**自分が解凍したフォルダのパスに書き換えて**保存してください。
