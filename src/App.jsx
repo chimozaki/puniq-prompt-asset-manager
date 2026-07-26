@@ -640,6 +640,7 @@ export default function App() {
     const timestamp = formatExportTimestamp();
     const csvFileName = `${timestamp}_export.csv`;
     const exportFolderName = timestamp + "_export";
+    const zipFileName = `${exportFolderName}.zip`;
 
     try {
       const { csv, images } = await buildExportCsvRows(true);
@@ -657,12 +658,28 @@ export default function App() {
       }
 
       const zipBlob = await zip.generateAsync({ type: "blob", encodeFileName: (name) => new TextEncoder().encode(name) });
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${exportFolderName}.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
+      if ("showSaveFilePicker" in window) {
+        const handle = await window.showSaveFilePicker({
+          id: "puniq-prompt-asset-manager-export",
+          suggestedName: zipFileName,
+          types: [
+            {
+              description: "ZIPアーカイブ",
+              accept: { "application/zip": [".zip"] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(zipBlob);
+        await writable.close();
+      } else {
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = zipFileName;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
 
       showStatus("ZIPでエクスポートしました");
     } catch (error) {
