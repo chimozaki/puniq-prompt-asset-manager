@@ -646,7 +646,7 @@ export default function App() {
       let saveHandle = null;
       if ("showSaveFilePicker" in window) {
         saveHandle = await window.showSaveFilePicker({
-          id: "puniq-prompt-asset-manager-export",
+          id: "puniq-pam-export",
           suggestedName: zipFileName,
           types: [
             {
