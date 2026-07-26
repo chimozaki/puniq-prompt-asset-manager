@@ -643,6 +643,20 @@ export default function App() {
     const zipFileName = `${exportFolderName}.zip`;
 
     try {
+      let saveHandle = null;
+      if ("showSaveFilePicker" in window) {
+        saveHandle = await window.showSaveFilePicker({
+          id: "puniq-prompt-asset-manager-export",
+          suggestedName: zipFileName,
+          types: [
+            {
+              description: "ZIPアーカイブ",
+              accept: { "application/zip": [".zip"] },
+            },
+          ],
+        });
+      }
+
       const { csv, images } = await buildExportCsvRows(true);
       const zip = new JSZip();
       const folder = zip.folder(exportFolderName);
@@ -658,18 +672,8 @@ export default function App() {
       }
 
       const zipBlob = await zip.generateAsync({ type: "blob", encodeFileName: (name) => new TextEncoder().encode(name) });
-      if ("showSaveFilePicker" in window) {
-        const handle = await window.showSaveFilePicker({
-          id: "puniq-prompt-asset-manager-export",
-          suggestedName: zipFileName,
-          types: [
-            {
-              description: "ZIPアーカイブ",
-              accept: { "application/zip": [".zip"] },
-            },
-          ],
-        });
-        const writable = await handle.createWritable();
+      if (saveHandle) {
+        const writable = await saveHandle.createWritable();
         await writable.write(zipBlob);
         await writable.close();
       } else {
