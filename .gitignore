@@ -11,6 +11,10 @@ node_modules
 dist
 dist-ssr
 *.local
+data/prompt-assets.json
+data/prompt-assets.previous.json
+data/prompt-assets.tmp
+data/images/
 
 # Editor directories and files
 .vscode/*

@@ -1,7 +1,38 @@
 @echo off
-
+setlocal
 cd /d "%~dp0"
 
-start cmd /c "npm run dev"
-timeout /t 1 /nobreak > nul
-start http://localhost:5173/
+where node >nul 2>&1
+if errorlevel 1 (
+  echo Node.js is not installed or is not available in PATH.
+  echo Install Node.js, then run this file again.
+  pause
+  exit /b 1
+)
+
+if not exist "node_modules\.bin\vite.cmd" (
+  echo Restoring npm dependencies...
+  call npm install --prefer-offline --no-audit --no-fund
+  if errorlevel 1 (
+    echo Failed to install npm dependencies.
+    pause
+    exit /b 1
+  )
+)
+
+start "Puniq Prompt Asset Manager" /min cmd /k "cd /d ""%~dp0"" && npm run dev -- --host localhost --strictPort"
+
+for /l %%I in (1,1,30) do (
+  curl.exe --silent --fail http://localhost:5173/ >nul 2>&1
+  if not errorlevel 1 goto open_app
+  timeout /t 1 /nobreak >nul
+)
+
+echo The app server did not start within 30 seconds.
+echo Check the "Puniq Prompt Asset Manager" window for details.
+pause
+exit /b 1
+
+:open_app
+start "" http://localhost:5173/
+exit /b 0

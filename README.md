@@ -2,6 +2,10 @@
 
 ![PuniQ Prompt Asset Manager](screenshot_exsample.png)
 
+---
+
+## [☕ Support on Ko-fi](https://ko-fi.com/puniq)
+
 **[日本語](#日本語) | [English](#english) | [繁體中文](#繁體中文) | [Español](#español)**
 
 ---
@@ -34,9 +38,14 @@
 
 ## 必要なもの
 
-- **Node.js**（バージョン18以上推奨）
-  - 入ってるか確認：コマンドプロンプトで `node -v` と打って、数字が表示されればOK
-  - 入っていない場合 → [Node.js公式サイト](https://nodejs.org/) から「LTS版」をダウンロードしてインストール
+- **Node.jsのLTS版**
+  1. まず `start_puniq_pam.bat` をダブルクリックし、アプリが開けば導入済みです。
+  2. 「Node.js is not installed...」と表示された場合は、[Node.js公式ダウンロードページ](https://nodejs.org/en/download)を開きます。
+  3. **LTS（長期サポート版）**のWindows用インストーラー（`.msi`）をダウンロードします。「Current」ではなく「LTS」を選んでください。
+  4. `.msi`を実行し、基本的に `Next` → 利用規約に同意 → `Next` → `Install` → `Finish` と初期設定のまま進めます。
+  5. Windowsを再起動し、もう一度BATを実行します。
+
+確認したい場合は、スタートメニューで「コマンドプロンプト」を開き、`node -v`を入力します。`v24...`のように`v`から始まる番号が表示されれば準備完了です。番号は例と違っていても問題ありません。
 
 ---
 
@@ -53,26 +62,29 @@
 
 ---
 
-#### ステップ2：初回のみ npm install を実行する
-
-コマンドプロンプトを開いて以下を実行してください（初回だけ必要です）：
-
-```bash
-npm install
-```
-
-> 💡 **コマンドプロンプトの開き方：** スタートメニューで「cmd」と検索して開いてください。
-> 💡 \*\*フォルダを開いた状態でアドレスバーに `cmd` と入力して Enter を押すと、そのフォルダでコマンドプロンプトを開けます。
-
----
-
-#### ステップ3：アプリを起動する
+#### ステップ2：アプリを起動する
 
 `start_puniq_pam.bat` を**ダブルクリック**するとブラウザが自動で開きます。
 
-> 💡 パスの書き換えは不要です。`start_puniq_pam.bat` は自動的に自身のフォルダを認識します。
->
-> 2回目以降はダブルクリックするだけでOKです！
+初回は必要なnpmファイルをBATが自動で導入するため、インターネット接続が必要です。手動で`npm install`を実行する必要はありません。
+
+> [!IMPORTANT]
+> 通常は必ず `start_puniq_pam.bat` から起動し、自動で開く `http://localhost:5173/` を使用してください。`127.0.0.1`や別のポートで開くと、ブラウザ内に残っている旧データは別扱いになります。
+
+- 起動中は、タスクバーに最小化されている「Puniq Prompt Asset Manager」のサーバー画面を閉じないでください。
+- 2回目以降もBATをダブルクリックするだけです。
+- BATは自分のフォルダを自動認識するため、パスの書き換えは不要です。
+
+#### 以前のブラウザからデータを移す
+
+ローカル保存ファイルがまだ空の場合、現在開いているブラウザの旧データを自動で`data`フォルダへ移します。
+
+1. `start_puniq_pam.bat`を起動したままにします。
+2. **以前データを入力していたブラウザ**を開きます。
+3. アドレス欄へ `http://localhost:5173/` と入力して開きます。
+4. 旧データが表示されると、プロンプトと画像がローカル保存へ自動移行されます。
+
+先に新しいブラウザが開いても、実データが見つからない間は初期サンプルをローカル保存として確定しません。画面に「⚠ 旧ブラウザから移行できます」と出ている間に、旧ブラウザで上記URLを開いてください。
 
 ---
 
@@ -119,12 +131,17 @@ npm run dev
 
 ## データはどこに保存される？
 
-| データ               | 保存場所                             |
-| -------------------- | ------------------------------------ |
-| プロンプトのテキスト | ブラウザのlocalStorage（パソコン内） |
-| サムネイル画像       | ブラウザのIndexedDB（パソコン内）    |
+| データ | 主な保存場所 |
+| ------ | ------------ |
+| プロンプト・タグ・お気に入り・表示設定 | `data/prompt-assets.json` |
+| ひとつ前のプロンプトデータ | `data/prompt-assets.previous.json` |
+| サムネイル画像 | `data/images/` |
+| 補助キャッシュ | 現在のブラウザのlocalStorage / IndexedDB |
 
-> ⚠️ ブラウザのキャッシュをすべて削除するとデータが消えます。定期的にエクスポートしてバックアップを取ることをおすすめします。
+BAT起動時はブラウザを変更しても同じ`data`フォルダを読み込みます。ブラウザキャッシュを消しても主データは残りますが、アプリのフォルダ自体を削除すると`data`も消えるため、定期的に「📤 Export」でZIPバックアップを取ってください。
+
+> [!WARNING]
+> GitHubから新しい版をダウンロードしてフォルダごと交換する場合は、先に古い版の`data`フォルダを安全な場所へコピーしてください。
 
 ---
 
@@ -172,9 +189,13 @@ It runs in your browser and stores everything **locally on your own PC**. Nothin
 
 ## Requirements
 
-- **Node.js** (version 18 or higher recommended)
-  - To check if it's installed: open a terminal and type `node -v`. If you see a version number, you're good.
-  - Not installed? → Download the **LTS version** from [nodejs.org](https://nodejs.org/)
+- **Node.js LTS**
+  1. First, double-click `start_puniq_pam.bat`. If the app opens, Node.js is already installed.
+  2. If it says “Node.js is not installed...”, open the [official Node.js download page](https://nodejs.org/en/download).
+  3. Download the Windows installer (`.msi`) for the **LTS** release, not “Current.”
+  4. Run the installer with its default options, then restart Windows.
+
+To verify it, open Command Prompt and enter `node -v`. A number beginning with `v` means it is ready.
 
 ---
 
@@ -191,27 +212,18 @@ Example: `C:\Users\YourName\Documents\puniq-prompt-asset-manager`
 
 ---
 
-#### Step 2: Run npm install (first time only)
-
-Open Command Prompt, navigate to the extracted folder, and run the following command (only required the first time):
-
-```bash
-npm install
-```
-
-> 💡 To open Command Prompt, search for "cmd" in the Start Menu.
->
-> 💡 You can also open the folder in File Explorer, type `cmd` into the address bar, and press Enter.
-
----
-
-#### Step 3: Launch the app
+#### Step 2: Launch the app
 
 **Double-click** `start_puniq_pam.bat` — your browser will open automatically.
 
-> 💡 No path editing is required. The batch file automatically detects its own folder location.
->
-> From the second launch onward, simply double-click the file!
+On the first launch, the BAT automatically installs the required npm dependencies, so an internet connection is required. You do not need to run `npm install` manually.
+
+> [!IMPORTANT]
+> Always launch with `start_puniq_pam.bat` and use `http://localhost:5173/`. Keep the minimized server window open while using the app.
+
+#### Migrate data from a previous browser
+
+When local file storage is still empty, the app automatically migrates data from the browser currently showing the old prompts. Keep the BAT running, open the browser you used previously, and visit `http://localhost:5173/`. The initial sample is not committed while the “⚠ You can migrate from your old browser” notice is shown.
 
 ---
 
@@ -258,12 +270,14 @@ Then open `http://localhost:5173` in your browser.
 
 ## Where is my data stored?
 
-| Data             | Storage                           |
-| ---------------- | --------------------------------- |
-| Prompt text      | Browser localStorage (on your PC) |
-| Thumbnail images | Browser IndexedDB (on your PC)    |
+| Data | Primary storage |
+| ---- | --------------- |
+| Prompts, tags, favorites, and display settings | `data/prompt-assets.json` |
+| Previous prompt data | `data/prompt-assets.previous.json` |
+| Thumbnail images | `data/images/` |
+| Secondary cache | Current browser localStorage / IndexedDB |
 
-> ⚠️ Clearing your browser cache will delete your data. Export regularly to keep backups.
+Browsers share the same `data` folder when launched through the BAT. Export ZIP backups regularly, and copy the `data` folder before replacing the whole app folder with a newer release.
 
 ---
 
@@ -311,9 +325,13 @@ MIT License © 2026 PuniQ
 
 ## 必要條件
 
-- **Node.js**（建議版本 18 以上）
-  - 確認是否已安裝：開啟終端機輸入 `node -v`，若顯示版本號即表示已安裝
-  - 尚未安裝？→ 請至 [nodejs.org](https://nodejs.org/) 下載 **LTS 版本**
+- **Node.js LTS版**
+  1. 先雙擊 `start_puniq_pam.bat`。若應用程式正常開啟，表示已安裝Node.js。
+  2. 若顯示「Node.js is not installed...」，請開啟[Node.js官方下載頁面](https://nodejs.org/en/download)。
+  3. 下載 **LTS** 的Windows安裝程式（`.msi`），不要選擇「Current」。
+  4. 使用預設選項完成安裝，然後重新啟動Windows。
+
+可在命令提示字元輸入 `node -v`；若顯示以`v`開頭的版本號，即表示準備完成。
 
 ---
 
@@ -330,27 +348,18 @@ MIT License © 2026 PuniQ
 
 ---
 
-#### 步驟 2：執行 npm install（僅第一次）
-
-開啟命令提示字元，切換到解壓縮後的資料夾，然後執行以下指令（只需第一次執行）：
-
-```bash
-npm install
-```
-
-> 💡 可在開始選單搜尋「cmd」開啟命令提示字元。
->
-> 💡 也可以在檔案總管開啟資料夾後，在網址列輸入 `cmd` 並按 Enter。
-
----
-
-#### 步驟 3：啟動應用程式
+#### 步驟 2：啟動應用程式
 
 雙擊 `start_puniq_pam.bat`，瀏覽器會自動開啟。
 
-> 💡 不需要修改路徑。批次檔會自動偵測自己的資料夾位置。
->
-> 第二次之後只需雙擊即可啟動！
+首次啟動時，BAT會自動安裝必要的npm套件，因此需要網路連線，不必手動執行 `npm install`。
+
+> [!IMPORTANT]
+> 請固定透過 `start_puniq_pam.bat` 啟動，並使用 `http://localhost:5173/`。使用期間請勿關閉最小化的伺服器視窗。
+
+#### 從舊瀏覽器移轉資料
+
+本機儲存尚未建立時，請保持BAT執行，使用以前輸入資料的瀏覽器開啟 `http://localhost:5173/`。舊提示詞與圖片會自動移轉；顯示「⚠ 可從舊瀏覽器移轉」期間，初始範例不會被確定為主資料。
 
 ---
 
@@ -397,12 +406,14 @@ npm run dev
 
 ## 資料儲存在哪裡？
 
-| 資料       | 儲存位置                          |
-| ---------- | --------------------------------- |
-| 提示詞文字 | 瀏覽器 localStorage（您的電腦內） |
-| 縮圖圖片   | 瀏覽器 IndexedDB（您的電腦內）    |
+| 資料 | 主要儲存位置 |
+| ---- | ------------ |
+| 提示詞、標籤、最愛與顯示設定 | `data/prompt-assets.json` |
+| 上一份提示詞資料 | `data/prompt-assets.previous.json` |
+| 縮圖圖片 | `data/images/` |
+| 輔助快取 | 目前瀏覽器的localStorage / IndexedDB |
 
-> ⚠️ 清除瀏覽器快取將會刪除所有資料。請定期匯出備份。
+透過BAT啟動時，不同瀏覽器會共用同一個`data`資料夾。請定期匯出ZIP備份；若要更換整個應用程式資料夾，請先複製舊版的`data`資料夾。
 
 ---
 
@@ -450,9 +461,13 @@ La aplicación funciona en tu navegador y guarda todo **únicamente en tu propio
 
 ## Requisitos
 
-- **Node.js** (versión 18 o superior recomendada)
-  - Para comprobar si está instalado: abre una terminal y escribe `node -v`. Si aparece un número de versión, ya lo tienes.
-  - ¿No lo tienes instalado? → Descarga la **versión LTS** desde [nodejs.org](https://nodejs.org/)
+- **Node.js LTS**
+  1. Primero, haz doble clic en `start_puniq_pam.bat`. Si se abre la aplicación, Node.js ya está instalado.
+  2. Si aparece “Node.js is not installed...”, abre la [página oficial de descarga de Node.js](https://nodejs.org/en/download).
+  3. Descarga el instalador de Windows (`.msi`) de la versión **LTS**, no “Current”.
+  4. Instálalo con las opciones predeterminadas y reinicia Windows.
+
+Para comprobarlo, abre el Símbolo del sistema y escribe `node -v`. Un número que empieza por `v` indica que está listo.
 
 ---
 
@@ -469,27 +484,18 @@ Ejemplo: `C:\Users\TuNombre\Documents\puniq-prompt-asset-manager`
 
 ---
 
-#### Paso 2: Ejecutar npm install (solo la primera vez)
-
-Abre el Símbolo del sistema, entra en la carpeta extraída y ejecuta el siguiente comando (solo es necesario la primera vez):
-
-```bash
-npm install
-```
-
-> 💡 Puedes abrir el Símbolo del sistema buscando "cmd" en el menú Inicio.
->
-> 💡 También puedes abrir la carpeta en el Explorador de archivos, escribir `cmd` en la barra de direcciones y pulsar Enter.
-
----
-
-#### Paso 3: Iniciar la aplicación
+#### Paso 2: Iniciar la aplicación
 
 Haz doble clic en `start_puniq_pam.bat` y el navegador se abrirá automáticamente.
 
-> 💡 No es necesario modificar ninguna ruta. El archivo bat detecta automáticamente su propia ubicación.
->
-> ¡A partir de la segunda vez, solo haz doble clic para iniciar!
+En el primer inicio, el BAT instala automáticamente las dependencias npm necesarias, por lo que se requiere conexión a Internet. No necesitas ejecutar `npm install` manualmente.
+
+> [!IMPORTANT]
+> Inicia siempre con `start_puniq_pam.bat` y usa `http://localhost:5173/`. Mantén abierta la ventana minimizada del servidor mientras uses la aplicación.
+
+#### Migrar datos desde el navegador anterior
+
+Si el almacenamiento local aún está vacío, mantén el BAT en ejecución, abre el navegador que usabas antes y visita `http://localhost:5173/`. Los prompts y las imágenes anteriores se migrarán automáticamente; la muestra inicial no se guardará como dato principal mientras aparezca el aviso de migración.
 
 ---
 
@@ -536,12 +542,14 @@ Luego abre `http://localhost:5173` en tu navegador.
 
 ## ¿Dónde se guardan los datos?
 
-| Datos                 | Almacenamiento                               |
-| --------------------- | -------------------------------------------- |
-| Texto de los prompts  | localStorage del navegador (en tu ordenador) |
-| Imágenes en miniatura | IndexedDB del navegador (en tu ordenador)    |
+| Datos | Almacenamiento principal |
+| ----- | ------------------------ |
+| Prompts, etiquetas, favoritos y configuración | `data/prompt-assets.json` |
+| Datos anteriores | `data/prompt-assets.previous.json` |
+| Imágenes en miniatura | `data/images/` |
+| Caché secundaria | localStorage / IndexedDB del navegador actual |
 
-> ⚠️ Si borras la caché del navegador, perderás todos los datos. Exporta regularmente para hacer copias de seguridad.
+Los navegadores comparten la misma carpeta `data` al iniciar mediante el BAT. Exporta copias ZIP con regularidad y copia la carpeta `data` antes de sustituir toda la carpeta de la aplicación.
 
 ---
 

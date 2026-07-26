@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 
 const STORAGE_KEY = "puniq_prompt_asset_manager_v1";
@@ -6,12 +6,14 @@ const DB_NAME = "puniq_prompt_asset_manager_images";
 const STORE_NAME = "images";
 const SORT_ORDER_KEY = "puniq_sort_order";
 const COL_COUNT_KEY = "puniq_col_count";
+const LOCAL_STORAGE_API = "/api/local-storage";
 const DEFAULT_SORT_ORDER = "newest";
 const DEFAULT_COL_COUNT = 4;
 const EXPORT_THUMBNAILS_DIR = "thumbnails";
 const DESKTOP_SPLIT_MIN_WIDTH = 1280;
 const MOBILE_BREAKPOINT = 900;
-const APP_VERSION = "v1.3.0";
+const APP_VERSION = "v1.4.0";
+let localFileStorageEnabled = false;
 const EMPTY_FORM = {
   title: "",
   tagsText: "",
@@ -41,6 +43,9 @@ const sampleItems = [
 export default function App() {
   const [items, setItems] = useState(sampleItems);
   const [loaded, setLoaded] = useState(false);
+  const [storageMode, setStorageMode] = useState("checking");
+  const [migrationNotice, setMigrationNotice] = useState(false);
+  const skipNextLocalSave = useRef(false);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [imageMap, setImageMap] = useState({});
@@ -78,37 +83,122 @@ export default function App() {
           : "タイトル順";
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    let cancelled = false;
+
+    (async () => {
+      const browserState = loadBrowserState();
+      const browserItems = browserState.items;
+      const browserSortOrder = localStorage.getItem(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER;
+      const browserColCount = Number(localStorage.getItem(COL_COUNT_KEY)) || DEFAULT_COL_COUNT;
+
       try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setItems(parsed);
-      } catch {
-        setItems(sampleItems);
+        const stored = await loadLocalFileData();
+        localFileStorageEnabled = true;
+
+        if (stored.exists) {
+          const data = stored.data;
+          if (!cancelled) {
+            setItems(data.items);
+            setSortOrder(data.sortOrder || DEFAULT_SORT_ORDER);
+            setColCount(Number(data.colCount) || DEFAULT_COL_COUNT);
+          }
+        } else if (browserState.hasStoredData) {
+          for (const item of browserItems) {
+            if (!item.hasImage) continue;
+            try {
+              const image = await getBrowserImage(item.id);
+              if (image) await saveLocalFileImage(item.id, image);
+            } catch (error) {
+              console.warn(`Could not migrate image ${item.id}; prompt migration will continue.`, error);
+            }
+          }
+
+          await saveLocalFileData({
+            version: 1,
+            items: browserItems,
+            sortOrder: browserSortOrder,
+            colCount: browserColCount,
+          });
+
+          if (!cancelled) {
+            setItems(browserItems);
+            setSortOrder(browserSortOrder);
+            setColCount(browserColCount);
+            showStatus("ブラウザのデータをローカル保存へ移行しました");
+          }
+        } else if (!cancelled) {
+          skipNextLocalSave.current = true;
+          setItems(browserItems);
+          setSortOrder(browserSortOrder);
+          setColCount(browserColCount);
+          setMigrationNotice(true);
+        }
+
+        if (!cancelled) setStorageMode("local");
+      } catch (error) {
+        console.warn("Local file storage is unavailable; using browser storage.", error);
+        localFileStorageEnabled = false;
+        if (!cancelled) {
+          setItems(browserItems);
+          setSortOrder(browserSortOrder);
+          setColCount(browserColCount);
+          setStorageMode("browser");
+        }
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
-    }
-    setLoaded(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!loaded) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    localStorage.setItem(SORT_ORDER_KEY, sortOrder);
+    localStorage.setItem(COL_COUNT_KEY, String(colCount));
+
+    let saveTimer = null;
+    if (storageMode === "local") {
+      if (skipNextLocalSave.current) {
+        skipNextLocalSave.current = false;
+      } else {
+        saveTimer = window.setTimeout(() => {
+          saveLocalFileData({
+            version: 1,
+            items,
+            sortOrder,
+            colCount,
+          }).then(() => {
+            setMigrationNotice(false);
+          }).catch((error) => {
+            console.error(error);
+            setStorageMode("error");
+          });
+        }, 200);
+      }
+    }
 
     const toLoad = items.filter((item) => item.hasImage && !imageMap[item.id]);
-    if (toLoad.length === 0) return;
-
     let cancelled = false;
-    (async () => {
-      const next = { ...imageMap };
-      for (const item of toLoad) {
-        const img = await getImage(item.id);
-        if (img) next[item.id] = img;
-      }
-      if (!cancelled) setImageMap(next);
-    })();
+    if (toLoad.length > 0) {
+      (async () => {
+        const next = { ...imageMap };
+        for (const item of toLoad) {
+          const img = await getImage(item.id);
+          if (img) next[item.id] = img;
+        }
+        if (!cancelled) setImageMap(next);
+      })();
+    }
 
-    return () => { cancelled = true; };
-  }, [items]);
+    return () => {
+      cancelled = true;
+      if (saveTimer) window.clearTimeout(saveTimer);
+    };
+  }, [items, sortOrder, colCount, loaded, storageMode, imageMap]);
 
   useEffect(() => {
     if (!sortMenuOpen) return;
@@ -180,14 +270,6 @@ export default function App() {
     setForm((current) => ({
       ...current,
       tagDraft: "",
-    }));
-  }
-
-  function removeTag(targetTag) {
-    const nextTags = parseTags(form.tagsText).filter((tag) => tag !== targetTag);
-    setForm((current) => ({
-      ...current,
-      tagsText: nextTags.join(", "),
     }));
   }
 
@@ -388,6 +470,14 @@ export default function App() {
   async function clearAllData() {
     try {
       await deleteAllImages();
+      if (localFileStorageEnabled) {
+        await saveLocalFileData({
+          version: 1,
+          items: [],
+          sortOrder: DEFAULT_SORT_ORDER,
+          colCount: DEFAULT_COL_COUNT,
+        });
+      }
 
       localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
       localStorage.removeItem(SORT_ORDER_KEY);
@@ -490,6 +580,15 @@ export default function App() {
       .slice(0, 80);
   }
 
+  function getImageMimeType(fileName) {
+    const extension = String(fileName || "").toLowerCase().split(".").pop();
+    if (extension === "png") return "image/png";
+    if (extension === "webp") return "image/webp";
+    if (extension === "gif") return "image/gif";
+    if (extension === "avif") return "image/avif";
+    return "image/jpeg";
+  }
+
   async function buildExportCsvRows(useImageFileName = false) {
     const header = ["タイトル", "PositivePrompt", "NegativePrompt", "タグ", "サムネイル画像", "お気に入り"];
     const rows = [header.map(escapeCsvValue).join(",")];
@@ -582,12 +681,12 @@ export default function App() {
 
     try {
       // ZIPファイルの場合
-      if (file.name.endsWith(".zip")) {
+      if (file.name.toLowerCase().endsWith(".zip")) {
         const zip = await JSZip.loadAsync(file);
 
         // ZIP内のCSVを探す
         const csvFile = Object.values(zip.files).find(
-          (f) => !f.dir && f.name.endsWith(".csv")
+          (f) => !f.dir && f.name.toLowerCase().endsWith(".csv")
         );
         if (!csvFile) {
           showStatus("ZIP内にCSVが見つかりませんでした");
@@ -598,14 +697,10 @@ export default function App() {
         const thumbMap = {};
         for (const [path, zipEntry] of Object.entries(zip.files)) {
           const normalizedPath = path.replace(/\\/g, "/");
-          if (!zipEntry.dir && normalizedPath.includes(`${EXPORT_THUMBNAILS_DIR}/`)) {
+          if (!zipEntry.dir && normalizedPath.toLowerCase().includes(`${EXPORT_THUMBNAILS_DIR}/`)) {
             const fileName = normalizedPath.split("/").pop();
-            const blob = await zipEntry.async("blob");
-            const dataUrl = await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result);
-              reader.readAsDataURL(blob);
-            });
+            const base64 = await zipEntry.async("base64");
+            const dataUrl = `data:${getImageMimeType(fileName)};base64,${base64}`;
             thumbMap[normalizedPath] = dataUrl;
             thumbMap[fileName] = dataUrl;
           }
@@ -703,6 +798,24 @@ export default function App() {
             <span style={styles.versionBadge}>{APP_VERSION}</span>
           </h1>
           <p style={isMobileView ? { ...styles.subtitle, ...styles.subtitleMobile } : styles.subtitle}>AIイラスト用Prompt Assetを保存・検索・管理</p>
+          {loaded && (storageMode !== "local" || migrationNotice) && (
+            <div
+              style={storageMode === "error" ? { ...styles.storageWarning, ...styles.storageWarningError } : styles.storageWarning}
+              title={
+                storageMode === "error"
+                  ? "ローカルファイルへの保存に失敗しました。ブラウザ内のキャッシュは継続しています。"
+                  : migrationNotice
+                    ? "ローカル保存はまだ空です。以前のデータが別ブラウザにある場合は、そのブラウザで http://localhost:5173/ を開くと移行できます。"
+                  : "BATを使わずに開いているため、データはこのブラウザ内だけに保存されます。"
+              }
+            >
+              {storageMode === "error"
+                ? "⚠ ローカル保存エラー"
+                : migrationNotice
+                  ? "⚠ 旧ブラウザから移行できます"
+                  : "⚠ ブラウザ保存のみ"}
+            </div>
+          )}
         </div>
 
         <div style={isMobileView ? { ...styles.headerTools, ...styles.headerToolsMobile } : styles.headerTools}>
@@ -1173,24 +1286,6 @@ export default function App() {
 }
 
 
-function getVisibleTags(tags, maxCount = 5, maxChars = 25) {
-  const safeTags = Array.isArray(tags) ? tags : [];
-  const visible = [];
-  let totalChars = 0;
-
-  for (const tag of safeTags) {
-    if (visible.length >= maxCount) break;
-    if (totalChars + tag.length > maxChars) break;
-    visible.push(tag);
-    totalChars += tag.length;
-  }
-
-  return {
-    visible,
-    hiddenCount: Math.max(0, safeTags.length - visible.length),
-  };
-}
-
 function parseTags(text) {
   return String(text || "")
     .split(/[、,]+/)
@@ -1236,6 +1331,34 @@ function openDb() {
 }
 
 async function saveImage(id, dataUrl) {
+  await saveBrowserImage(id, dataUrl);
+  if (localFileStorageEnabled) await saveLocalFileImage(id, dataUrl);
+}
+
+async function getImage(id) {
+  if (localFileStorageEnabled) {
+    const localImage = await getLocalFileImage(id);
+    if (localImage) return localImage;
+  }
+
+  const browserImage = await getBrowserImage(id);
+  if (browserImage && localFileStorageEnabled) {
+    await saveLocalFileImage(id, browserImage);
+  }
+  return browserImage;
+}
+
+async function deleteImage(id) {
+  if (localFileStorageEnabled) await deleteLocalFileImage(id);
+  await deleteBrowserImage(id);
+}
+
+async function deleteAllImages() {
+  if (localFileStorageEnabled) await deleteAllLocalFileImages();
+  await deleteAllBrowserImages();
+}
+
+async function saveBrowserImage(id, dataUrl) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
@@ -1251,7 +1374,7 @@ async function saveImage(id, dataUrl) {
   });
 }
 
-async function getImage(id) {
+async function getBrowserImage(id) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
@@ -1275,7 +1398,7 @@ async function getImage(id) {
   });
 }
 
-async function deleteImage(id) {
+async function deleteBrowserImage(id) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
@@ -1291,7 +1414,7 @@ async function deleteImage(id) {
   });
 }
 
-function deleteAllImages() {
+function deleteAllBrowserImages() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(DB_NAME);
     request.onsuccess = () => resolve();
@@ -1300,7 +1423,97 @@ function deleteAllImages() {
   });
 }
 
+function loadBrowserState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return { items: sampleItems, hasStoredData: false };
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return { items: sampleItems, hasStoredData: false };
+    const untouchedSample = parsed.length === 1
+      && parsed[0]?.id === "sample-1"
+      && parsed[0]?.title === sampleItems[0].title
+      && parsed[0]?.positive === sampleItems[0].positive
+      && parsed[0]?.negative === sampleItems[0].negative;
+    return { items: parsed, hasStoredData: !untouchedSample };
+  } catch {
+    return { items: sampleItems, hasStoredData: false };
+  }
+}
+
+async function requestLocalStorage(pathname, options = {}) {
+  const response = await fetch(`${LOCAL_STORAGE_API}${pathname}`, {
+    cache: "no-store",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Local storage request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+function loadLocalFileData() {
+  return requestLocalStorage("/data");
+}
+
+function saveLocalFileData(data) {
+  return requestLocalStorage("/data", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+async function getLocalFileImage(id) {
+  const result = await requestLocalStorage(`/images/${encodeURIComponent(id)}`);
+  return result.exists ? result.dataUrl : "";
+}
+
+function saveLocalFileImage(id, dataUrl) {
+  return requestLocalStorage(`/images/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify({ dataUrl }),
+  });
+}
+
+function deleteLocalFileImage(id) {
+  return requestLocalStorage(`/images/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+function deleteAllLocalFileImages() {
+  return requestLocalStorage("/images", {
+    method: "DELETE",
+  });
+}
+
 const styles = {
+
+  storageWarning: {
+    display: "inline-flex",
+    alignItems: "center",
+    marginTop: "8px",
+    padding: "4px 9px",
+    border: "1px solid rgba(255,190,92,0.4)",
+    borderRadius: "999px",
+    background: "rgba(255,190,92,0.1)",
+    color: "#ffd58a",
+    fontSize: "11px",
+    fontWeight: 700,
+    lineHeight: 1.2,
+    cursor: "help",
+  },
+
+  storageWarningError: {
+    border: "1px solid rgba(255,100,125,0.48)",
+    background: "rgba(255,80,110,0.12)",
+    color: "#ff9bb1",
+  },
 
   favoriteFilterButton: {
     border: "1px solid rgba(255,255,255,0.22)",
