@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+title Prompt Asset Manager
 
 where node >nul 2>&1
 if errorlevel 1 (
@@ -20,19 +21,19 @@ if not exist "node_modules\.bin\vite.cmd" (
   )
 )
 
-start "Puniq Prompt Asset Manager" /min cmd /k "cd /d ""%~dp0"" && npm run dev -- --host localhost --strictPort"
+start "Prompt Asset Manager - Local Server" /min cmd /k "title Prompt Asset Manager - Local Server && cd /d ""%~dp0"" && node node_modules\vite\bin\vite.js --host localhost --port 4177 --strictPort"
 
 for /l %%I in (1,1,30) do (
-  curl.exe --silent --fail http://localhost:5173/ >nul 2>&1
+  curl.exe --silent --fail http://localhost:4177/ >nul 2>&1
   if not errorlevel 1 goto open_app
   timeout /t 1 /nobreak >nul
 )
 
 echo The app server did not start within 30 seconds.
-echo Check the "Puniq Prompt Asset Manager" window for details.
+echo Check the "Prompt Asset Manager - Local Server" window for details.
 pause
 exit /b 1
 
 :open_app
-start "" http://localhost:5173/
+start "" http://localhost:4177/
 exit /b 0

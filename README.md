@@ -1,5 +1,7 @@
 # 🎨 PuniQ Prompt Asset Manager
 
+**Version 1.5.0 · 2026-09-10** — [Release notes / 更新履歴](RELEASE_NOTES.md)
+
 ![PuniQ Prompt Asset Manager](screenshot_exsample.png)
 
 ---
@@ -27,12 +29,25 @@
 ## 主な機能
 
 - ✅ プロンプトの保存・編集・削除
+- 🗑 削除した資産をゴミ箱から復元、または確認後に完全削除
 - 🖼 サムネイル画像の登録
+- 🔎 サムネイルへマウスを重ねて拡大プレビュー
 - 🏷 タグで分類
 - ❤️ お気に入り管理
 - 🔍 フリーワード検索
-- 📤 CSV形式でエクスポート（バックアップ）
-- 📥 CSVまたはZIPからインポート（復元）
+- ☑ 複数選択、一括削除・エクスポート・タグ編集・お気に入り変更
+- ↔ 登録フォームの折りたたみ・展開
+- 📝 プロンプトとは独立した備考の保存・編集・検索
+- 📤 CSVとサムネイルをZIPでエクスポート（バックアップ）
+- 📥 CSVまたはZIPの件数・画像・重複を確認して安全にインポート
+
+### v1.5.0の入力エリア
+
+左上のピンクのボタンで折りたたみ・展開できます。開閉前後でボタンの位置が変わらず、入力中の内容も保持されます。デスクトップでは表示可能な高さに合わせて各入力欄を調整し、モバイルでは上下アイコンで開閉します。備考はプロンプトのコピーに含まれず、専用のコピーボタンもありません。備考はZIP内のCSVにも保存され、備考列のない旧CSVも読み込めます。
+
+ホバープレビューの最大幅は640pxです。登録時に縮小・圧縮した画像を使用するため、元画像と同じ画質ではありません。
+
+Windowsの黒いサーバー画面は `Prompt Asset Manager - Local Server` と表示されます。通常の起動ポートは旧版の5173から **4177** へ変更しました。既存の `data` フォルダは引き続き使用できます。ブラウザ内だけに残る旧データの移行方法は下記を参照してください。
 
 ---
 
@@ -69,22 +84,21 @@
 初回は必要なnpmファイルをBATが自動で導入するため、インターネット接続が必要です。手動で`npm install`を実行する必要はありません。
 
 > [!IMPORTANT]
-> 通常は必ず `start_puniq_pam.bat` から起動し、自動で開く `http://localhost:5173/` を使用してください。`127.0.0.1`や別のポートで開くと、ブラウザ内に残っている旧データは別扱いになります。
+> 通常は必ず `start_puniq_pam.bat` から起動し、自動で開く `http://localhost:4177/` を使用してください。`127.0.0.1`や別のポートで開くと、ブラウザ保存は別扱いになります。
 
-- 起動中は、タスクバーに最小化されている「Puniq Prompt Asset Manager」のサーバー画面を閉じないでください。
+- 起動中は、タスクバーに最小化されている「Prompt Asset Manager - Local Server」のサーバー画面を閉じないでください。
 - 2回目以降もBATをダブルクリックするだけです。
 - BATは自分のフォルダを自動認識するため、パスの書き換えは不要です。
 
 #### 以前のブラウザからデータを移す
 
-ローカル保存ファイルがまだ空の場合、現在開いているブラウザの旧データを自動で`data`フォルダへ移します。
+旧版の `http://localhost:5173/` にだけデータがあり、`data`フォルダがまだ空の場合は、先に旧ポートで一度だけ移行します。
 
-1. `start_puniq_pam.bat`を起動したままにします。
-2. **以前データを入力していたブラウザ**を開きます。
-3. アドレス欄へ `http://localhost:5173/` と入力して開きます。
-4. 旧データが表示されると、プロンプトと画像がローカル保存へ自動移行されます。
-
-先に新しいブラウザが開いても、実データが見つからない間は初期サンプルをローカル保存として確定しません。画面に「⚠ 旧ブラウザから移行できます」と出ている間に、旧ブラウザで上記URLを開いてください。
+1. 5173番ポートを使用している他のアプリを終了します。
+2. このフォルダで `npm run dev -- --host localhost --port 5173 --strictPort` を実行します。
+3. **以前データを入力していたブラウザ**で `http://localhost:5173/` を開きます。
+4. 旧データが表示され、`data/prompt-assets.json`が作成されたらサーバーを終了します。
+5. 以後は`start_puniq_pam.bat`から `http://localhost:4177/` を使用します。
 
 ---
 
@@ -103,7 +117,7 @@ npm install
 npm run dev
 ```
 
-ブラウザで `http://localhost:5173` を開いてください。
+ブラウザで `http://localhost:4177` を開いてください。
 
 ---
 
@@ -119,12 +133,14 @@ npm run dev
 ### バックアップ（エクスポート）
 
 - 右上の「📤 Export」ボタンをクリック
-- **Chrome** → 保存先フォルダを選ぶと、タイムスタンプ付きのフォルダにCSVと画像がまとめて書き出されます
+- **保存ダイアログ対応ブラウザ** → ZIPの保存先とファイル名を選択します。ZIP内にCSVと画像がまとめて保存されます
 - **Brave・その他ブラウザ** → `タイムスタンプ_export.zip` として自動ダウンロードされます（ZIP内の構造は同じ）
 
 ### 復元（インポート）
 
-- 「📥 Import」ボタンからCSVまたはZIPファイルを選ぶと読み込まれます
+- 「📥 Import」ボタンからCSVまたはZIPファイルを選ぶと、取り込み件数・画像数・重複候補が表示されます
+- 重複を除いて追加、すべて追加、現在の一覧を置き換える、の3方式から選べます
+- 実行直前の状態は1世代自動退避され、「インポート前に戻す」から復元できます
 - ZIPを選ぶとサムネイル画像も一緒に復元されます
 
 ---
@@ -177,12 +193,14 @@ It runs in your browser and stores everything **locally on your own PC**. Nothin
 
 ## Features
 
+**New in v1.5.0:** Trash and restore; import preview with duplicate handling and one-step rollback; multi-select and bulk delete/export/tag/favorite actions; independent searchable notes included in exports; a pink collapse toggle that stays in place; desktop form sizing based on available viewport height; hover previews up to 640px. Notes are never added to copied prompts. Older CSVs without notes remain supported. The Windows server window is named `Prompt Asset Manager - Local Server`. The default port is now **4177**; existing local data files are reused, while browser-only data from port 5173 requires the migration steps below.
+
 - ✅ Save, edit, and delete prompts
 - 🖼 Attach thumbnail images
 - 🏷 Organize with tags
 - ❤️ Mark favorites
 - 🔍 Free-word search
-- 📤 Export to CSV (backup)
+- 📤 Export CSV and thumbnails together as ZIP (backup)
 - 📥 Import from CSV or ZIP (restore)
 
 ---
@@ -219,11 +237,11 @@ Example: `C:\Users\YourName\Documents\puniq-prompt-asset-manager`
 On the first launch, the BAT automatically installs the required npm dependencies, so an internet connection is required. You do not need to run `npm install` manually.
 
 > [!IMPORTANT]
-> Always launch with `start_puniq_pam.bat` and use `http://localhost:5173/`. Keep the minimized server window open while using the app.
+> Always launch with `start_puniq_pam.bat` and use `http://localhost:4177/`. Keep the minimized server window open while using the app.
 
 #### Migrate data from a previous browser
 
-When local file storage is still empty, the app automatically migrates data from the browser currently showing the old prompts. Keep the BAT running, open the browser you used previously, and visit `http://localhost:5173/`. The initial sample is not committed while the “⚠ You can migrate from your old browser” notice is shown.
+If data exists only at the legacy `http://localhost:5173/` origin and local file storage is empty, close the app currently using port 5173 and run `npm run dev -- --host localhost --port 5173 --strictPort` once. Open that URL in the previous browser, wait for `data/prompt-assets.json` to be created, stop the server, and then use the BAT at `http://localhost:4177/`.
 
 ---
 
@@ -242,7 +260,7 @@ npm install
 npm run dev
 ```
 
-Then open `http://localhost:5173` in your browser.
+Then open `http://localhost:4177` in your browser.
 
 ---
 
@@ -258,12 +276,13 @@ Then open `http://localhost:5173` in your browser.
 ### Backup (Export)
 
 - Click the **📤 Export** button
-- **Chrome** → Choose a folder — a timestamped folder will be created with your CSV and images inside
+- **Browsers supporting the save dialog** → Choose a ZIP filename and destination; the ZIP contains the CSV and thumbnail images
 - **Brave & other browsers** → A `timestamp_export.zip` file will be downloaded automatically (same folder structure inside)
 
 ### Restore (Import)
 
 - Click **📥 Import** and select a CSV or ZIP file to restore your prompts
+- Review counts and duplicates, then append without duplicates, append all, or replace the current list. The previous state is retained for rollback.
 - Selecting a ZIP file will also restore thumbnail images
 
 ---
@@ -313,12 +332,14 @@ MIT License © 2026 PuniQ
 
 ## 主要功能
 
+**v1.5.0新增：** 垃圾桶與還原、匯入預覽與重複處理、匯入前狀態還原、多選與批次刪除／匯出／標籤／最愛操作。新增獨立備註，可搜尋並隨CSV匯出，不會加入複製的提示詞。粉紅色開關在收合前後保持相同位置；桌面輸入區依視窗可用高度調整，懸停預覽最大寬度為640px。Windows伺服器視窗名稱為 `Prompt Asset Manager - Local Server`，預設連接埠改為 **4177**。原有本機資料檔可繼續使用；僅存在5173瀏覽器儲存空間的資料請依下方步驟移轉。
+
 - ✅ 儲存、編輯、刪除提示詞
 - 🖼 附加縮圖圖片
 - 🏷 用標籤分類整理
 - ❤️ 加入最愛
 - 🔍 關鍵字搜尋
-- 📤 匯出為 CSV（備份）
+- 📤 將CSV與縮圖一起匯出為ZIP（備份）
 - 📥 從 CSV 或 ZIP 匯入（還原）
 
 ---
@@ -355,11 +376,11 @@ MIT License © 2026 PuniQ
 首次啟動時，BAT會自動安裝必要的npm套件，因此需要網路連線，不必手動執行 `npm install`。
 
 > [!IMPORTANT]
-> 請固定透過 `start_puniq_pam.bat` 啟動，並使用 `http://localhost:5173/`。使用期間請勿關閉最小化的伺服器視窗。
+> 請固定透過 `start_puniq_pam.bat` 啟動，並使用 `http://localhost:4177/`。使用期間請勿關閉最小化的伺服器視窗。
 
 #### 從舊瀏覽器移轉資料
 
-本機儲存尚未建立時，請保持BAT執行，使用以前輸入資料的瀏覽器開啟 `http://localhost:5173/`。舊提示詞與圖片會自動移轉；顯示「⚠ 可從舊瀏覽器移轉」期間，初始範例不會被確定為主資料。
+若資料只存在舊版 `http://localhost:5173/` 且本機檔案仍是空的，請先關閉占用5173連接埠的應用程式，執行 `npm run dev -- --host localhost --port 5173 --strictPort`，再用原本的瀏覽器開啟該網址。確認建立 `data/prompt-assets.json` 後停止伺服器，之後改用BAT的 `http://localhost:4177/`。
 
 ---
 
@@ -378,7 +399,7 @@ npm install
 npm run dev
 ```
 
-接著在瀏覽器開啟 `http://localhost:5173`。
+接著在瀏覽器開啟 `http://localhost:4177`。
 
 ---
 
@@ -394,12 +415,13 @@ npm run dev
 ### 備份（匯出）
 
 - 點擊右上角的「📤 Export」按鈕
-- **Chrome** → 選擇目標資料夾，系統會自動建立含時間戳記的資料夾，並將 CSV 與圖片一起輸出
+- **支援儲存對話框的瀏覽器** → 選擇ZIP檔名與儲存位置；ZIP內包含CSV與縮圖
 - **Brave 及其他瀏覽器** → 會自動下載 `時間戳記_export.zip` 檔案（ZIP 內結構相同）
 
 ### 還原（匯入）
 
 - 點擊「📥 Import」按鈕，選擇 CSV 或 ZIP 檔案即可匯入
+- 確認筆數與重複項目後，可選擇排除重複新增、全部新增或取代清單，並可還原至匯入前的狀態。缺少備註欄的舊CSV仍可匯入。
 - 選擇 ZIP 檔案時，縮圖圖片也會一併還原
 
 ---
@@ -449,12 +471,14 @@ La aplicación funciona en tu navegador y guarda todo **únicamente en tu propio
 
 ## Funciones principales
 
+**Novedades de v1.5.0:** Papelera y restauración; vista previa de importación con control de duplicados y recuperación del estado anterior; selección múltiple y acciones de eliminación, exportación, etiquetas y favoritos. Notas independientes que se pueden buscar y exportar, sin incluirlas en los prompts copiados. El botón rosa permanece en la misma posición al plegar y desplegar; el formulario de escritorio se adapta a la altura disponible y la vista previa de imágenes alcanza 640px. La ventana del servidor se llama `Prompt Asset Manager - Local Server`. El puerto predeterminado cambia a **4177**. Se conservan los archivos locales existentes; los datos guardados solo en el navegador en el puerto 5173 requieren la migración indicada abajo.
+
 - ✅ Guardar, editar y eliminar prompts
 - 🖼 Adjuntar imágenes en miniatura
 - 🏷 Organizar con etiquetas
 - ❤️ Marcar favoritos
 - 🔍 Búsqueda por palabras clave
-- 📤 Exportar a CSV (copia de seguridad)
+- 📤 Exportar CSV y miniaturas en un ZIP (copia de seguridad)
 - 📥 Importar desde CSV o ZIP (restaurar)
 
 ---
@@ -491,11 +515,11 @@ Haz doble clic en `start_puniq_pam.bat` y el navegador se abrirá automáticamen
 En el primer inicio, el BAT instala automáticamente las dependencias npm necesarias, por lo que se requiere conexión a Internet. No necesitas ejecutar `npm install` manualmente.
 
 > [!IMPORTANT]
-> Inicia siempre con `start_puniq_pam.bat` y usa `http://localhost:5173/`. Mantén abierta la ventana minimizada del servidor mientras uses la aplicación.
+> Inicia siempre con `start_puniq_pam.bat` y usa `http://localhost:4177/`. Mantén abierta la ventana minimizada del servidor mientras uses la aplicación.
 
 #### Migrar datos desde el navegador anterior
 
-Si el almacenamiento local aún está vacío, mantén el BAT en ejecución, abre el navegador que usabas antes y visita `http://localhost:5173/`. Los prompts y las imágenes anteriores se migrarán automáticamente; la muestra inicial no se guardará como dato principal mientras aparezca el aviso de migración.
+Si los datos solo existen en el origen anterior `http://localhost:5173/` y el archivo local aún está vacío, cierra la aplicación que use el puerto 5173 y ejecuta una vez `npm run dev -- --host localhost --port 5173 --strictPort`. Abre esa URL con el navegador anterior, espera a que se cree `data/prompt-assets.json`, detén el servidor y después usa el BAT en `http://localhost:4177/`.
 
 ---
 
@@ -514,7 +538,7 @@ npm install
 npm run dev
 ```
 
-Luego abre `http://localhost:5173` en tu navegador.
+Luego abre `http://localhost:4177` en tu navegador.
 
 ---
 
@@ -530,12 +554,13 @@ Luego abre `http://localhost:5173` en tu navegador.
 ### Copia de seguridad (Exportar)
 
 - Haz clic en el botón **📤 Export**
-- **Chrome** → Elige una carpeta — se creará automáticamente una carpeta con marca de tiempo que contiene el CSV y las imágenes
+- **Navegadores con diálogo de guardado** → Elige el nombre y destino del ZIP, que contiene el CSV y las miniaturas
 - **Brave y otros navegadores** → Se descargará automáticamente un archivo `marca_de_tiempo_export.zip` (con la misma estructura interna)
 
 ### Restaurar (Importar)
 
 - Haz clic en **📥 Import** y selecciona un archivo CSV o ZIP para recuperar tus prompts
+- Revisa los recuentos y duplicados y elige añadir sin duplicados, añadir todo o reemplazar la lista. Puedes recuperar el estado anterior. Los CSV antiguos sin notas siguen siendo compatibles.
 - Si seleccionas un ZIP, las imágenes en miniatura también se restaurarán
 
 ---

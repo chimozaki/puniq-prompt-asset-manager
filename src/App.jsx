@@ -1,18 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
+import "./form-panel.css";
 
 const STORAGE_KEY = "puniq_prompt_asset_manager_v1";
 const DB_NAME = "puniq_prompt_asset_manager_images";
 const STORE_NAME = "images";
 const SORT_ORDER_KEY = "puniq_sort_order";
 const COL_COUNT_KEY = "puniq_col_count";
+const FORM_COLLAPSED_KEY = "puniq_form_collapsed";
 const LOCAL_STORAGE_API = "/api/local-storage";
 const DEFAULT_SORT_ORDER = "newest";
 const DEFAULT_COL_COUNT = 4;
 const EXPORT_THUMBNAILS_DIR = "thumbnails";
 const DESKTOP_SPLIT_MIN_WIDTH = 1280;
 const MOBILE_BREAKPOINT = 900;
-const APP_VERSION = "v1.4.0";
+const APP_VERSION = "v1.5.0";
 let localFileStorageEnabled = false;
 const EMPTY_FORM = {
   title: "",
@@ -20,10 +22,41 @@ const EMPTY_FORM = {
   tagDraft: "",
   positive: "",
   negative: "",
+  notes: "",
   imageFile: null,
   imagePreview: "",
   imageFileName: "",
 };
+
+function FormPanelToggleIcon({ collapsed }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M9 3v18" stroke="currentColor" strokeWidth="1.7" />
+      <path
+        d={collapsed ? "m13 9 3 3-3 3" : "m16 9-3 3 3 3"}
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FormAccordionToggleIcon({ collapsed }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d={collapsed ? "m7 9 5 5 5-5" : "m7 15 5-5 5 5"}
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 const sampleItems = [
   {
@@ -34,6 +67,7 @@ const sampleItems = [
       "masterpiece, anime illustration, spring flower field, white one-piece dress, holding straw hat, wind blowing, flower petals, soft sunlight",
     negative:
       "low quality, blurry, bad anatomy, extra fingers, text, watermark, logo",
+    notes: "",
     hasImage: false,
     favorite: false,
     createdAt: new Date().toLocaleString(),
@@ -42,6 +76,9 @@ const sampleItems = [
 
 export default function App() {
   const [items, setItems] = useState(sampleItems);
+  const [trash, setTrash] = useState([]);
+  const [importBackup, setImportBackup] = useState(null);
+  const [restoreBackupConfirm, setRestoreBackupConfirm] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [storageMode, setStorageMode] = useState("checking");
   const [migrationNotice, setMigrationNotice] = useState(false);
@@ -53,6 +90,18 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
   const [onlyFavorite, setOnlyFavorite] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [permanentDeleteIds, setPermanentDeleteIds] = useState([]);
+  const [pendingImport, setPendingImport] = useState(null);
+  const [importMode, setImportMode] = useState("merge-skip");
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkTagAction, setBulkTagAction] = useState(null);
+  const [bulkTagText, setBulkTagText] = useState("");
+  const [hoverPreview, setHoverPreview] = useState(null);
+  const [formCollapsed, setFormCollapsed] = useState(() => localStorage.getItem(FORM_COLLAPSED_KEY) === "true");
+  const formPanelRef = useRef(null);
   const [resetConfirmStep, setResetConfirmStep] = useState(0);
   const [sortOrder, setSortOrder] = useState(() => localStorage.getItem(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -66,6 +115,41 @@ export default function App() {
     return window.innerWidth >= DESKTOP_SPLIT_MIN_WIDTH;
   });
   const isMobileView = viewportWidth < MOBILE_BREAKPOINT;
+  useLayoutEffect(() => {
+    const panel = formPanelRef.current;
+    if (!panel || !isDesktopSplit) return;
+    let frame = 0;
+    const measure = () => {
+      const viewport = window.visualViewport;
+      const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+      const top = Math.max(112, panel.getBoundingClientRect().top);
+      const height = `${Math.max(0, Math.floor(bottom - top - 24))}px`;
+      if (panel.style.getPropertyValue("--prompt-panel-height") !== height) {
+        panel.style.setProperty("--prompt-panel-height", height);
+      }
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(panel.parentElement);
+    const header = panel.closest(".prompt-workspace")?.previousElementSibling;
+    if (header) observer.observe(header);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
+    measure();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
+    };
+  }, [isDesktopSplit, formCollapsed]);
   const displayColCount = isMobileView ? 2 : colCount;
   const colOptions = [4, 5, 6, 7, 8];
   const selectedColButton = colCount;
@@ -88,6 +172,8 @@ export default function App() {
     (async () => {
       const browserState = loadBrowserState();
       const browserItems = browserState.items;
+      const browserTrash = browserState.trash;
+      const browserImportBackup = browserState.importBackup;
       const browserSortOrder = localStorage.getItem(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER;
       const browserColCount = Number(localStorage.getItem(COL_COUNT_KEY)) || DEFAULT_COL_COUNT;
 
@@ -98,7 +184,9 @@ export default function App() {
         if (stored.exists) {
           const data = stored.data;
           if (!cancelled) {
-            setItems(data.items);
+            setItems(Array.isArray(data.items) ? data.items : []);
+            setTrash(Array.isArray(data.trash) ? data.trash : []);
+            setImportBackup(normalizeImportBackup(data.importBackup));
             setSortOrder(data.sortOrder || DEFAULT_SORT_ORDER);
             setColCount(Number(data.colCount) || DEFAULT_COL_COUNT);
           }
@@ -114,14 +202,18 @@ export default function App() {
           }
 
           await saveLocalFileData({
-            version: 1,
+            version: 2,
             items: browserItems,
+            trash: browserTrash,
+            importBackup: browserImportBackup,
             sortOrder: browserSortOrder,
             colCount: browserColCount,
           });
 
           if (!cancelled) {
             setItems(browserItems);
+            setTrash(browserTrash);
+            setImportBackup(browserImportBackup);
             setSortOrder(browserSortOrder);
             setColCount(browserColCount);
             showStatus("ブラウザのデータをローカル保存へ移行しました");
@@ -129,6 +221,8 @@ export default function App() {
         } else if (!cancelled) {
           skipNextLocalSave.current = true;
           setItems(browserItems);
+          setTrash(browserTrash);
+          setImportBackup(browserImportBackup);
           setSortOrder(browserSortOrder);
           setColCount(browserColCount);
           setMigrationNotice(true);
@@ -140,6 +234,8 @@ export default function App() {
         localFileStorageEnabled = false;
         if (!cancelled) {
           setItems(browserItems);
+          setTrash(browserTrash);
+          setImportBackup(browserImportBackup);
           setSortOrder(browserSortOrder);
           setColCount(browserColCount);
           setStorageMode("browser");
@@ -156,7 +252,7 @@ export default function App() {
 
   useEffect(() => {
     if (!loaded) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, items, trash, importBackup }));
     localStorage.setItem(SORT_ORDER_KEY, sortOrder);
     localStorage.setItem(COL_COUNT_KEY, String(colCount));
 
@@ -167,8 +263,10 @@ export default function App() {
       } else {
         saveTimer = window.setTimeout(() => {
           saveLocalFileData({
-            version: 1,
+            version: 2,
             items,
+            trash,
+            importBackup,
             sortOrder,
             colCount,
           }).then(() => {
@@ -181,7 +279,8 @@ export default function App() {
       }
     }
 
-    const toLoad = items.filter((item) => item.hasImage && !imageMap[item.id]);
+    const allStoredItems = [...items, ...trash];
+    const toLoad = allStoredItems.filter((item) => item.hasImage && !imageMap[item.id]);
     let cancelled = false;
     if (toLoad.length > 0) {
       (async () => {
@@ -198,7 +297,11 @@ export default function App() {
       cancelled = true;
       if (saveTimer) window.clearTimeout(saveTimer);
     };
-  }, [items, sortOrder, colCount, loaded, storageMode, imageMap]);
+  }, [items, trash, importBackup, sortOrder, colCount, loaded, storageMode, imageMap]);
+
+  useEffect(() => {
+    localStorage.setItem(FORM_COLLAPSED_KEY, String(formCollapsed));
+  }, [formCollapsed]);
 
   useEffect(() => {
     if (!sortMenuOpen) return;
@@ -236,7 +339,7 @@ export default function App() {
       if (onlyFavorite && !item.favorite) return false;
       if (!q) return true;
 
-      return [item.title, item.positive, item.negative, ...(item.tags || [])]
+      return [item.title, item.positive, item.negative, item.notes, ...(item.tags || [])]
         .join(" ")
         .toLowerCase()
         .includes(q);
@@ -318,6 +421,13 @@ export default function App() {
     }
   }
 
+  function removeFormTag(tagToRemove) {
+    setForm((current) => ({
+      ...current,
+      tagsText: parseTags(current.tagsText).filter((tag) => tag !== tagToRemove).join(", "),
+    }));
+  }
+
   const handleImageChange = async (event) => {
     const inputElement = event.target;
     const file = inputElement.files?.[0];
@@ -350,6 +460,7 @@ export default function App() {
         tags: parseTags([...parseTags(form.tagsText), (form.tagDraft || "").trim()].filter(Boolean).join(", ")),
         positive: form.positive,
         negative: form.negative,
+        notes: form.notes,
         hasImage: hasImagePreview,
         favorite: false,
         createdAt: new Date().toLocaleString(),
@@ -392,12 +503,14 @@ export default function App() {
     const preview = item.hasImage ? await getImage(item.id) : "";
 
     setEditingId(item.id);
+    setFormCollapsed(false);
     setForm({
       title: item.title || "",
       tagsText: (item.tags || []).join(", "),
       tagDraft: "",
       positive: item.positive || "",
       negative: item.negative || "",
+      notes: item.notes || "",
       imageFile: null,
       imagePreview: preview || "",
       imageFileName: preview ? "保存済みサムネイル" : "",
@@ -425,6 +538,7 @@ export default function App() {
         tags: parseTags(pendingTags.join(", ")),
         positive: form.positive,
         negative: form.negative,
+        notes: form.notes,
         hasImage: hasImagePreview,
         favorite: false,
         createdAt: new Date().toLocaleString(),
@@ -456,34 +570,121 @@ export default function App() {
     );
   }
 
-  const deleteItem = async (id) => {
-    await deleteImage(id);
-    setItems((current) => current.filter((item) => item.id !== id));
-    setImageMap((current) => {
-      const next = { ...current };
-      delete next[id];
+  function moveItemsToTrash(ids) {
+    const idSet = new Set(ids);
+    if (idSet.size === 0) return;
+    const deletedAt = new Date().toISOString();
+    const moving = items.filter((item) => idSet.has(item.id));
+    if (moving.length === 0) return;
+    setTrash((currentTrash) => [
+      ...moving.map((item) => ({ ...item, deletedAt })),
+      ...currentTrash.filter((item) => !idSet.has(item.id)),
+    ]);
+    setItems((current) => current.filter((item) => !idSet.has(item.id)));
+    setSelectedIds((current) => new Set([...current].filter((id) => !idSet.has(id))));
+    if (editingId && idSet.has(editingId)) {
+      setEditingId(null);
+      setForm(EMPTY_FORM);
+    }
+    showStatus(`${moving.length}件をゴミ箱へ移動しました`);
+  }
+
+  function deleteItem(id) {
+    moveItemsToTrash([id]);
+  }
+
+  function restoreTrashItem(id) {
+    const target = trash.find((item) => item.id === id);
+    if (!target) return;
+    const restored = { ...target };
+    delete restored.deletedAt;
+    setTrash((current) => current.filter((item) => item.id !== id));
+    setItems((current) => [restored, ...current.filter((item) => item.id !== id)]);
+    showStatus("ゴミ箱から復元しました");
+  }
+
+  async function permanentlyDeleteTrashItems(ids) {
+    const idSet = new Set(ids);
+    if (idSet.size === 0) return;
+    try {
+      await Promise.all([...idSet].map((id) => deleteImage(id)));
+      setTrash((current) => current.filter((item) => !idSet.has(item.id)));
+      setImageMap((current) => {
+        const next = { ...current };
+        idSet.forEach((id) => delete next[id]);
+        return next;
+      });
+      showStatus(`${idSet.size}件を完全に削除しました`);
+    } catch (error) {
+      console.error(error);
+      showStatus("完全削除に失敗しました");
+    }
+  }
+
+  function toggleSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
-    showStatus("削除しました");
-  };
+  }
+
+  function toggleSelectionMode() {
+    setSelectionMode((current) => {
+      if (current) setSelectedIds(new Set());
+      return !current;
+    });
+  }
+
+  function selectAllFiltered() {
+    setSelectedIds(new Set(filtered.map((item) => item.id)));
+  }
+
+  function applyBulkTags() {
+    const tags = parseTags(bulkTagText);
+    if (tags.length === 0 || selectedIds.size === 0) return;
+    setItems((current) => current.map((item) => {
+      if (!selectedIds.has(item.id)) return item;
+      if (bulkTagAction === "add") {
+        return { ...item, tags: [...new Set([...(item.tags || []), ...tags])] };
+      }
+      const removing = new Set(tags.map((tag) => tag.toLocaleLowerCase("ja")));
+      return { ...item, tags: (item.tags || []).filter((tag) => !removing.has(tag.toLocaleLowerCase("ja"))) };
+    }));
+    showStatus(`${selectedIds.size}件のタグを${bulkTagAction === "add" ? "追加" : "削除"}しました`);
+    setBulkTagAction(null);
+    setBulkTagText("");
+  }
+
+  function setBulkFavorite(favorite) {
+    if (selectedIds.size === 0) return;
+    setItems((current) => current.map((item) => selectedIds.has(item.id) ? { ...item, favorite } : item));
+    showStatus(`${selectedIds.size}件のお気に入りを${favorite ? "ON" : "OFF"}にしました`);
+  }
 
   async function clearAllData() {
     try {
       await deleteAllImages();
       if (localFileStorageEnabled) {
         await saveLocalFileData({
-          version: 1,
+          version: 2,
           items: [],
+          trash: [],
+          importBackup: null,
           sortOrder: DEFAULT_SORT_ORDER,
           colCount: DEFAULT_COL_COUNT,
         });
       }
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, items: [], trash: [], importBackup: null }));
       localStorage.removeItem(SORT_ORDER_KEY);
       localStorage.removeItem(COL_COUNT_KEY);
 
       setItems([]);
+      setTrash([]);
+      setImportBackup(null);
+      setRestoreBackupConfirm(false);
       setImageMap({});
       setQuery("");
       setForm(EMPTY_FORM);
@@ -491,6 +692,11 @@ export default function App() {
       setOnlyFavorite(false);
       setSortMenuOpen(false);
       setConfirmDeleteId(null);
+      setTrashOpen(false);
+      setPermanentDeleteIds([]);
+      setPendingImport(null);
+      setSelectionMode(false);
+      setSelectedIds(new Set());
       setSortOrder(DEFAULT_SORT_ORDER);
       setColCount(DEFAULT_COL_COUNT);
       setResetConfirmStep(0);
@@ -552,12 +758,13 @@ export default function App() {
       }
     }
 
+    if (inQuotes) throw new Error("CSVの引用符が閉じられていません");
+
     // 末尾の残りを処理
     row.push(current);
     if (row.some((cell) => cell.trim() !== "")) rows.push(row);
 
-    // 1行目はヘッダーなのでスキップ
-    return rows.slice(1);
+    return rows;
   }
 
   function formatExportTimestamp() {
@@ -589,13 +796,13 @@ export default function App() {
     return "image/jpeg";
   }
 
-  async function buildExportCsvRows(useImageFileName = false) {
-    const header = ["タイトル", "PositivePrompt", "NegativePrompt", "タグ", "サムネイル画像", "お気に入り"];
+  async function buildExportCsvRows(sourceItems = items, useImageFileName = false) {
+    const header = ["タイトル", "PositivePrompt", "NegativePrompt", "タグ", "備考", "サムネイル画像", "お気に入り"];
     const rows = [header.map(escapeCsvValue).join(",")];
     const images = [];
     const usedFileNames = new Set();
 
-    for (const item of items) {
+    for (const item of sourceItems) {
       const image = item.hasImage ? await getImage(item.id) : "";
 
       let imageFileName = "";
@@ -622,6 +829,7 @@ export default function App() {
           item.positive || "",
           item.negative || "",
           (item.tags || []).join("、"),
+          item.notes || "",
           useImageFileName && imageFileName ? `${EXPORT_THUMBNAILS_DIR}/${imageFileName}` : image || "",
           item.favorite ? "true" : "false",
         ]
@@ -636,10 +844,14 @@ export default function App() {
     };
   }
 
-  async function exportPromptsCsv() {
+  async function exportItemsAsZip(sourceItems, fileLabel = "export") {
+    if (sourceItems.length === 0) {
+      showStatus("エクスポートする項目がありません");
+      return;
+    }
     const timestamp = formatExportTimestamp();
-    const csvFileName = `${timestamp}_export.csv`;
-    const exportFolderName = timestamp + "_export";
+    const csvFileName = `${timestamp}_${fileLabel}.csv`;
+    const exportFolderName = `${timestamp}_${fileLabel}`;
     const zipFileName = `${exportFolderName}.zip`;
 
     try {
@@ -657,7 +869,7 @@ export default function App() {
         });
       }
 
-      const { csv, images } = await buildExportCsvRows(true);
+      const { csv, images } = await buildExportCsvRows(sourceItems, true);
       const zip = new JSZip();
       const folder = zip.folder(exportFolderName);
 
@@ -685,7 +897,7 @@ export default function App() {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
 
-      showStatus("ZIPでエクスポートしました");
+      showStatus(`${sourceItems.length}件をZIPでエクスポートしました`);
     } catch (error) {
       if (error?.name === "AbortError") {
         showStatus("エクスポートをキャンセルしました");
@@ -697,12 +909,58 @@ export default function App() {
     }
   }
 
-  async function importPromptsCsv(file) {
+  async function exportPromptsCsv() {
+    await exportItemsAsZip(items, "export");
+  }
+
+  async function exportSelectedItems() {
+    const selectedItems = items.filter((item) => selectedIds.has(item.id));
+    await exportItemsAsZip(selectedItems, "selected_export");
+  }
+
+  function buildImportedItems(rows, resolveImage) {
+    if (rows.length === 0) throw new Error("CSVが空です");
+    const headers = rows[0].map((value) => String(value || "").replace(/^\ufeff/, "").trim().toLocaleLowerCase("ja"));
+    const findHeader = (...names) => headers.findIndex((header) => names.includes(header));
+    const indexes = {
+      title: findHeader("タイトル", "title"),
+      positive: findHeader("positiveprompt", "positive prompt", "positive"),
+      negative: findHeader("negativeprompt", "negative prompt", "negative"),
+      tags: findHeader("タグ", "tags"),
+      notes: findHeader("備考", "メモ", "notes", "note"),
+      image: findHeader("サムネイル画像", "thumbnail", "image"),
+      favorite: findHeader("お気に入り", "favorite"),
+    };
+    if (indexes.title < 0 || indexes.positive < 0) {
+      throw new Error("タイトルとPositivePromptの列が必要です");
+    }
+
+    return rows.slice(1).filter((row) => row.some((cell) => String(cell || "").trim())).map((row) => {
+      const imageField = indexes.image >= 0 ? row[indexes.image] : "";
+      const imageData = resolveImage(String(imageField || "").trim());
+      return {
+        id: makeSafeId(),
+        title: String(row[indexes.title] || "").trim() || "無題プロンプト",
+        positive: String(row[indexes.positive] || ""),
+        negative: indexes.negative >= 0 ? String(row[indexes.negative] || "") : "",
+        tags: indexes.tags >= 0 ? parseTags(row[indexes.tags] || "") : [],
+        notes: indexes.notes >= 0 ? String(row[indexes.notes] || "") : "",
+        hasImage: Boolean(imageData),
+        favorite: indexes.favorite >= 0 && String(row[indexes.favorite] || "").toLocaleLowerCase() === "true",
+        createdAt: new Date().toLocaleString(),
+        _imageData: imageData,
+      };
+    });
+  }
+
+  async function prepareImport(file) {
     if (!file) return;
 
     try {
-      // ZIPファイルの場合
+      let importedItems = [];
+      let sourceType = "CSV";
       if (file.name.toLowerCase().endsWith(".zip")) {
+        sourceType = "ZIP";
         const zip = await JSZip.loadAsync(file);
 
         // ZIP内のCSVを探す
@@ -710,8 +968,7 @@ export default function App() {
           (f) => !f.dir && f.name.toLowerCase().endsWith(".csv")
         );
         if (!csvFile) {
-          showStatus("ZIP内にCSVが見つかりませんでした");
-          return;
+          throw new Error("ZIP内にCSVが見つかりませんでした");
         }
 
         // thumbnails/フォルダの画像をファイル名/相対パス→data URLのマップに変換
@@ -729,84 +986,127 @@ export default function App() {
 
         const csvText = await csvFile.async("string");
         const rows = parseCsvText(csvText);
-        const importedItems = [];
-
-        for (const row of rows) {
-          const [title, positive, negative, tagsText, imageField, favoriteText] = row;
-          const id = makeSafeId();
-
-          // data URLかファイル名かを判定
-          let validImage = "";
-          const normalizedImageField = String(imageField || "").trim().replace(/\\/g, "/");
-          if (normalizedImageField && normalizedImageField.startsWith("data:")) {
-            validImage = normalizedImageField;
-          } else if (normalizedImageField) {
-            const baseName = normalizedImageField.split("/").pop();
-            validImage =
-              thumbMap[normalizedImageField] ||
-              thumbMap[baseName] ||
-              "";
-          }
-
-          const newItem = {
-            id,
-            title: title || "無題プロンプト",
-            positive: positive || "",
-            negative: negative || "",
-            tags: parseTags(tagsText || ""),
-            hasImage: Boolean(validImage),
-            favorite: favoriteText === "true",
-            createdAt: new Date().toLocaleString(),
-          };
-
-          if (validImage) {
-            await saveImage(id, validImage);
-          }
-
-          importedItems.push(newItem);
-        }
-
-        setItems((current) => [...importedItems, ...current]);
-        showStatus(`ZIPから${importedItems.length}件インポートしました`);
-        return;
+        importedItems = buildImportedItems(rows, (imageField) => {
+          const normalizedImageField = imageField.replace(/\\/g, "/");
+          if (normalizedImageField.startsWith("data:image/")) return normalizedImageField;
+          const baseName = normalizedImageField.split("/").pop();
+          return thumbMap[normalizedImageField] || thumbMap[baseName] || "";
+        });
+      } else {
+        const csvText = await file.text();
+        const rows = parseCsvText(csvText);
+        importedItems = buildImportedItems(rows, (imageField) => imageField.startsWith("data:image/") ? imageField : "");
       }
 
-      // CSVファイルの場合
-      const csvText = await file.text();
-      const rows = parseCsvText(csvText);
-      const importedItems = [];
-
-      for (const row of rows) {
-        const [title, positive, negative, tagsText, image, favoriteText] = row;
-        const id = makeSafeId();
-
-        // data URLのみ有効な画像として扱う（ファイル名文字列はスキップ）
-        const validImage = image && image.startsWith("data:") ? image : "";
-
-        const newItem = {
-          id,
-          title: title || "無題プロンプト",
-          positive: positive || "",
-          negative: negative || "",
-          tags: parseTags(tagsText || ""),
-          hasImage: Boolean(validImage),
-          favorite: favoriteText === "true",
-          createdAt: new Date().toLocaleString(),
-        };
-
-        if (validImage) {
-          await saveImage(id, validImage);
-        }
-
-        importedItems.push(newItem);
-      }
-
-      setItems((current) => [...importedItems, ...current]);
-      showStatus(`CSVから${importedItems.length}件インポートしました`);
+      if (importedItems.length === 0) throw new Error("取り込めるデータがありません");
+      const existingFingerprints = new Set(items.map(assetFingerprint));
+      const seenImportFingerprints = new Set();
+      const withDuplicateState = importedItems.map((item) => {
+        const fingerprint = assetFingerprint(item);
+        const duplicate = existingFingerprints.has(fingerprint) || seenImportFingerprints.has(fingerprint);
+        seenImportFingerprints.add(fingerprint);
+        return { ...item, _isDuplicate: duplicate };
+      });
+      setPendingImport({
+        fileName: file.name,
+        sourceType,
+        items: withDuplicateState,
+        duplicateCount: withDuplicateState.filter((item) => item._isDuplicate).length,
+        imageCount: withDuplicateState.filter((item) => item.hasImage).length,
+      });
+      setImportMode("merge-skip");
     } catch (error) {
       console.error(error);
-      showStatus("インポートに失敗しました");
+      showStatus(`インポートできません: ${error.message || "ファイルを確認してください"}`);
     }
+  }
+
+  async function applyPendingImport() {
+    if (!pendingImport) return;
+    const savedImportIds = [];
+    try {
+      const backup = {
+        createdAt: new Date().toISOString(),
+        items: items.map((item) => ({ ...item, tags: [...(item.tags || [])] })),
+        trash: trash.map((item) => ({ ...item, tags: [...(item.tags || [])] })),
+      };
+      let accepted = pendingImport.items;
+      if (importMode === "merge-skip") accepted = accepted.filter((item) => !item._isDuplicate);
+
+      const cleanItems = accepted.map((item) => {
+        const cleanItem = { ...item };
+        delete cleanItem._imageData;
+        delete cleanItem._isDuplicate;
+        return cleanItem;
+      });
+      for (const item of accepted) {
+        if (item._imageData) {
+          await saveImage(item.id, item._imageData);
+          savedImportIds.push(item.id);
+        }
+      }
+      setImageMap((current) => {
+        const next = { ...current };
+        accepted.forEach((item) => {
+          if (item._imageData) next[item.id] = item._imageData;
+        });
+        return next;
+      });
+      setImportBackup(backup);
+
+      if (importMode === "replace") {
+        const deletedAt = new Date().toISOString();
+        setTrash((current) => [
+          ...items.map((item) => ({ ...item, deletedAt })),
+          ...current,
+        ]);
+        setItems(cleanItems);
+      } else {
+        setItems((current) => [...cleanItems, ...current]);
+      }
+      setPendingImport(null);
+      setSelectedIds(new Set());
+      showStatus(`${cleanItems.length}件をインポートしました`);
+    } catch (error) {
+      console.error(error);
+      await Promise.allSettled(savedImportIds.map((id) => deleteImage(id)));
+      showStatus("インポートの保存に失敗しました");
+    }
+  }
+
+  async function restoreImportBackup() {
+    if (!importBackup) return;
+    try {
+      const backupIds = new Set([...importBackup.items, ...importBackup.trash].map((item) => item.id));
+      const currentIds = new Set([...items, ...trash].map((item) => item.id));
+      await Promise.all([...currentIds].filter((id) => !backupIds.has(id)).map((id) => deleteImage(id)));
+      setItems(importBackup.items);
+      setTrash(importBackup.trash);
+      setImageMap((current) => {
+        const next = { ...current };
+        Object.keys(next).forEach((id) => {
+          if (!backupIds.has(id)) delete next[id];
+        });
+        return next;
+      });
+      setImportBackup(null);
+      setSelectedIds(new Set());
+      showStatus("インポート前の状態に戻しました");
+    } catch (error) {
+      console.error(error);
+      showStatus("インポート前の状態へ戻せませんでした");
+    }
+  }
+
+  function showImageHoverPreview(event, item) {
+    if (isMobileView || !imageMap[item.id]) return;
+    const previewWidth = Math.min(640, window.innerWidth * 0.54, window.innerWidth - 32);
+    const estimatedHeight = Math.min(window.innerHeight * 0.70, previewWidth * 1.2 + 42);
+    const left = event.clientX + 24 + previewWidth <= window.innerWidth
+      ? event.clientX + 24
+      : Math.max(16, event.clientX - previewWidth - 24);
+    const top = Math.min(Math.max(16, event.clientY - estimatedHeight / 2), window.innerHeight - estimatedHeight - 16);
+    setHoverPreview({ id: item.id, title: item.title, src: imageMap[item.id], left, top, width: previewWidth });
   }
 
 
@@ -826,7 +1126,7 @@ export default function App() {
                 storageMode === "error"
                   ? "ローカルファイルへの保存に失敗しました。ブラウザ内のキャッシュは継続しています。"
                   : migrationNotice
-                    ? "ローカル保存はまだ空です。以前のデータが別ブラウザにある場合は、そのブラウザで http://localhost:5173/ を開くと移行できます。"
+                    ? "ローカル保存はまだ空です。旧版の http://localhost:5173/ にデータがある場合は、READMEの旧データ移行手順を確認してください。"
                   : "BATを使わずに開いているため、データはこのブラウザ内だけに保存されます。"
               }
             >
@@ -856,7 +1156,7 @@ export default function App() {
               type="file"
               accept=".csv,text/csv,.zip"
               onChange={(e) => {
-                importPromptsCsv(e.target.files?.[0]);
+                prepareImport(e.target.files?.[0]);
                 e.target.value = "";
               }}
               style={styles.fileInput}
@@ -866,6 +1166,17 @@ export default function App() {
           <button type="button" onClick={exportPromptsCsv} style={isMobileView ? { ...styles.toolButton, ...styles.toolButtonMobile } : styles.toolButton}>
             📤 Export
           </button>
+
+          {importBackup && (
+            <button
+              type="button"
+              onClick={() => setRestoreBackupConfirm(true)}
+              style={isMobileView ? { ...styles.toolButton, ...styles.toolButtonMobile } : styles.toolButton}
+              title={`退避日時: ${new Date(importBackup.createdAt).toLocaleString()}`}
+            >
+              ↩ インポート前に戻す
+            </button>
+          )}
 
           <button
             type="button"
@@ -884,10 +1195,17 @@ export default function App() {
 
       {status && <div style={styles.statusToast}>{status}</div>}
 
+      {hoverPreview && (
+        <div style={{ ...styles.hoverPreview, left: hoverPreview.left, top: hoverPreview.top, width: hoverPreview.width }} aria-hidden="true">
+          <img src={hoverPreview.src} alt="" style={styles.hoverPreviewImage} />
+          <div style={styles.hoverPreviewTitle}>{hoverPreview.title}</div>
+        </div>
+      )}
+
       {confirmDeleteId && (
         <div style={styles.confirmOverlay}>
           <div style={styles.confirmDialog}>
-            <p style={styles.confirmText}>🗑️ このプロンプトを削除しますか？</p>
+            <p style={styles.confirmText}>🗑️ このプロンプトをゴミ箱へ移動しますか？</p>
             <div style={styles.confirmButtons}>
               <button
                 type="button"
@@ -897,7 +1215,7 @@ export default function App() {
                 }}
                 style={styles.confirmDeleteButton}
               >
-                削除する
+                ゴミ箱へ移動
               </button>
               <button
                 type="button"
@@ -906,6 +1224,131 @@ export default function App() {
               >
                 キャンセル
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingImport && (
+        <div style={styles.confirmOverlay} role="dialog" aria-modal="true" aria-labelledby="import-preview-title">
+          <div style={{ ...styles.confirmDialog, ...styles.confirmDialogWide }}>
+            <h2 id="import-preview-title" style={styles.modalTitle}>インポート内容を確認</h2>
+            <p style={styles.modalFileName}>{pendingImport.fileName}</p>
+            <div style={styles.summaryGrid}>
+              <div style={styles.summaryCell}><strong>{pendingImport.items.length}</strong><span>取り込み候補</span></div>
+              <div style={styles.summaryCell}><strong>{pendingImport.imageCount}</strong><span>画像あり</span></div>
+              <div style={styles.summaryCell}><strong>{pendingImport.duplicateCount}</strong><span>重複候補</span></div>
+            </div>
+            <div style={styles.importOptions}>
+              <label style={styles.importOption}>
+                <input type="radio" name="import-mode" checked={importMode === "merge-skip"} onChange={() => setImportMode("merge-skip")} />
+                <span><strong>重複を除いて追加</strong><small>同じタイトル・Positive・Negativeの項目は追加しません。</small></span>
+              </label>
+              <label style={styles.importOption}>
+                <input type="radio" name="import-mode" checked={importMode === "merge-all"} onChange={() => setImportMode("merge-all")} />
+                <span><strong>すべて別データとして追加</strong><small>重複候補も新しい資産として追加します。</small></span>
+              </label>
+              <label style={styles.importOption}>
+                <input type="radio" name="import-mode" checked={importMode === "replace"} onChange={() => setImportMode("replace")} />
+                <span><strong>現在の一覧を置き換える</strong><small>現在の資産はゴミ箱へ移動してから取り込みます。</small></span>
+              </label>
+            </div>
+            <p style={styles.safetyNote}>実行直前の一覧とゴミ箱は1世代退避され、「インポート前に戻す」で復元できます。</p>
+            <div style={styles.confirmButtons}>
+              <button type="button" onClick={() => setPendingImport(null)} style={styles.confirmCancelButton}>キャンセル</button>
+              <button type="button" onClick={applyPendingImport} style={styles.confirmSupportButton}>インポートを実行</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {restoreBackupConfirm && importBackup && (
+        <div style={styles.confirmOverlay} role="alertdialog" aria-modal="true">
+          <div style={styles.confirmDialog}>
+            <p style={styles.confirmText}>インポート前の状態に戻しますか？</p>
+            <p style={styles.confirmSubTextStrong}>インポート後に追加・編集した内容は失われます。</p>
+            <div style={styles.confirmButtons}>
+              <button type="button" onClick={() => setRestoreBackupConfirm(false)} style={styles.confirmCancelButton}>キャンセル</button>
+              <button type="button" onClick={async () => { setRestoreBackupConfirm(false); await restoreImportBackup(); }} style={styles.confirmDeleteButton}>元の状態へ戻す</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {trashOpen && (
+        <div style={styles.confirmOverlay} role="dialog" aria-modal="true" aria-labelledby="trash-title">
+          <div style={{ ...styles.confirmDialog, ...styles.confirmDialogWide }}>
+            <div style={styles.modalHeaderRow}>
+              <h2 id="trash-title" style={styles.modalTitle}>ゴミ箱 ({trash.length})</h2>
+              <button type="button" onClick={() => setTrashOpen(false)} style={styles.modalCloseButton} aria-label="ゴミ箱を閉じる">×</button>
+            </div>
+            {trash.length === 0 ? (
+              <p style={styles.emptyMessage}>ゴミ箱は空です。</p>
+            ) : (
+              <div style={styles.trashList}>
+                {trash.map((item) => (
+                  <div key={item.id} style={styles.trashRow}>
+                    {imageMap[item.id] ? <img src={imageMap[item.id]} alt="" style={styles.trashThumb} /> : <div style={styles.trashNoImage}>No Image</div>}
+                    <div style={styles.trashInfo}>
+                      <strong>{item.title}</strong>
+                      <small>削除: {formatDateTime(item.deletedAt)}</small>
+                    </div>
+                    <div style={styles.trashActions}>
+                      <button type="button" onClick={() => restoreTrashItem(item.id)} style={styles.smallActionButton}>復元</button>
+                      <button type="button" onClick={() => setPermanentDeleteIds([item.id])} style={styles.smallDangerButton}>完全削除</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={styles.confirmButtons}>
+              <button type="button" onClick={() => setTrashOpen(false)} style={styles.confirmCancelButton}>閉じる</button>
+              <button type="button" disabled={trash.length === 0} onClick={() => setPermanentDeleteIds(trash.map((item) => item.id))} style={styles.confirmDeleteButton}>ゴミ箱を空にする</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {permanentDeleteIds.length > 0 && (
+        <div style={{ ...styles.confirmOverlay, zIndex: 10020 }} role="alertdialog" aria-modal="true">
+          <div style={styles.confirmDialog}>
+            <p style={styles.confirmText}>{permanentDeleteIds.length}件を完全に削除しますか？</p>
+            <p style={styles.confirmSubTextStrong}>画像を含めて削除され、この操作は取り消せません。</p>
+            <div style={styles.confirmButtons}>
+              <button type="button" onClick={() => setPermanentDeleteIds([])} style={styles.confirmCancelButton}>キャンセル</button>
+              <button type="button" onClick={async () => { const ids = [...permanentDeleteIds]; setPermanentDeleteIds([]); await permanentlyDeleteTrashItems(ids); }} style={styles.confirmDeleteButton}>完全に削除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteConfirm && (
+        <div style={styles.confirmOverlay} role="dialog" aria-modal="true">
+          <div style={styles.confirmDialog}>
+            <p style={styles.confirmText}>選択した{selectedIds.size}件をゴミ箱へ移動しますか？</p>
+            <div style={styles.confirmButtons}>
+              <button type="button" onClick={() => setBulkDeleteConfirm(false)} style={styles.confirmCancelButton}>キャンセル</button>
+              <button type="button" onClick={() => { moveItemsToTrash([...selectedIds]); setBulkDeleteConfirm(false); }} style={styles.confirmDeleteButton}>ゴミ箱へ移動</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkTagAction && (
+        <div style={styles.confirmOverlay} role="dialog" aria-modal="true" aria-labelledby="bulk-tag-title">
+          <div style={styles.confirmDialog}>
+            <h2 id="bulk-tag-title" style={styles.modalTitle}>選択した{selectedIds.size}件へタグを{bulkTagAction === "add" ? "追加" : "削除"}</h2>
+            <input
+              autoFocus
+              value={bulkTagText}
+              onChange={(event) => setBulkTagText(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") applyBulkTags(); }}
+              placeholder="カンマ区切りで入力"
+              style={styles.modalInput}
+            />
+            <div style={styles.confirmButtons}>
+              <button type="button" onClick={() => { setBulkTagAction(null); setBulkTagText(""); }} style={styles.confirmCancelButton}>キャンセル</button>
+              <button type="button" onClick={applyBulkTags} style={styles.confirmSupportButton}>適用</button>
             </div>
           </div>
         </div>
@@ -979,19 +1422,40 @@ export default function App() {
         </div>
       )}
 
-      <div style={isDesktopSplit ? styles.workspaceDesktop : styles.workspaceStack}>
+      <div className="prompt-workspace" style={isDesktopSplit ? (formCollapsed ? { ...styles.workspaceDesktop, ...styles.workspaceDesktopCollapsed } : styles.workspaceDesktop) : styles.workspaceStack}>
         <section
+          ref={formPanelRef}
+          className={`prompt-panel${formCollapsed ? " is-collapsed" : ""}${isDesktopSplit ? " is-desktop" : ""}`}
           style={
             isDesktopSplit
-              ? { ...styles.formArea, ...styles.formAreaDesktop }
+              ? (formCollapsed
+                ? { ...styles.formArea, ...styles.formAreaDesktop, ...styles.formAreaCollapsed }
+                : { ...styles.formArea, ...styles.formAreaDesktop })
               : isMobileView
                 ? { ...styles.formArea, ...styles.formAreaMobile }
                 : styles.formArea
           }
         >
-          <h2 style={styles.sectionTitle}>プロンプト記入エリア</h2>
+          <div className="prompt-panel-header">
+            <button
+              type="button"
+              onClick={() => setFormCollapsed((value) => !value)}
+              className="prompt-panel-toggle"
+              title={formCollapsed ? "登録フォームを開く" : "登録フォームを閉じる"}
+              aria-label={formCollapsed ? "登録フォームを開く" : "登録フォームを閉じる"}
+              aria-expanded={!formCollapsed}
+              aria-controls="prompt-editor-form"
+            >
+              {isDesktopSplit
+                ? <FormPanelToggleIcon collapsed={formCollapsed} />
+                : <FormAccordionToggleIcon collapsed={formCollapsed} />}
+              <span className="prompt-panel-tooltip" aria-hidden="true">{formCollapsed ? "入力エリアを開く" : "一覧を広く表示"}</span>
+            </button>
+            {(!formCollapsed || !isDesktopSplit) && <div className="prompt-panel-heading"><h2>プロンプト記入エリア</h2></div>}
+            {formCollapsed && isDesktopSplit && <span className="prompt-panel-dock-label" aria-hidden="true">入力</span>}
+          </div>
 
-          <form onSubmit={savePrompt} style={styles.form}>
+          <form id="prompt-editor-form" hidden={formCollapsed} className="prompt-editor-form" onSubmit={savePrompt} style={formCollapsed ? { display: "none" } : styles.form}>
           <label style={styles.label}>
             <span style={styles.labelText}>タイトル</span>
             <input
@@ -1005,17 +1469,27 @@ export default function App() {
           <label style={styles.label}>
             <span style={styles.labelText}>タグ</span>
             <div>
-              <div style={styles.tagInputBox}>
+              <div className="prompt-tag-box" style={styles.tagInputBox}>
                 {tagPreview.map((tag) => (
-                  <button
-                    type="button"
-                    key={tag}
-                    onClick={() => copyText(tag, `#${tag}`)}
-                    style={styles.tagChipInInput}
-                    title="クリックでコピー（削除はBackspace）"
-                  >
-                    #{tag}
-                  </button>
+                  <span key={tag} style={styles.tagChipGroup}>
+                    <button
+                      type="button"
+                      onClick={() => copyText(tag, `#${tag}`)}
+                      style={styles.tagChipInInput}
+                      title="タグをコピー"
+                    >
+                      #{tag}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeFormTag(tag)}
+                      style={styles.tagChipRemove}
+                      title={`${tag}を削除`}
+                      aria-label={`${tag}を削除`}
+                    >
+                      ×
+                    </button>
+                  </span>
                 ))}
 
                 <input
@@ -1027,8 +1501,8 @@ export default function App() {
                   style={styles.tagDraftInput}
                 />
               </div>
-              <div style={styles.tagGuide}>
-                カンマ「,」を打つとタグとして確定します。タグをクリックすると削除できます。
+              <div className="prompt-tag-guide" style={styles.tagGuide}>
+                カンマ「,」でタグ化。本体クリックでコピー、右側の×または入力欄のBackspaceで削除できます。
               </div>
             </div>
           </label>
@@ -1054,10 +1528,23 @@ export default function App() {
             />
           </label>
 
-          <div style={styles.bottomRow}>
-            <div style={styles.imageSelectArea}>
+          <label style={styles.label}>
+            <span style={styles.labelHeading}>
+              <span style={styles.labelText}>備考</span>
+              <span style={styles.labelHint}>プロンプトには含まれません</span>
+            </span>
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="制作メモ、使用モデル、設定などを自由に記入"
+              style={styles.notesTextarea}
+            />
+          </label>
+
+          <div className="prompt-form-footer" style={styles.bottomRow}>
+            <div className="prompt-image-select" style={styles.imageSelectArea}>
               <div style={styles.thumbnailPickerWrap}>
-                <label style={form.imagePreview ? styles.fileLabelSelected : styles.fileLabel}>
+                <label className="prompt-image-picker" style={form.imagePreview ? styles.fileLabelSelected : styles.fileLabel}>
                   {form.imagePreview ? (
                     <>
                       <img src={form.imagePreview} alt="" style={styles.uploadPreviewImage} />
@@ -1101,7 +1588,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={styles.saveButtonGroup}>
+            <div className="prompt-save-actions" style={styles.saveButtonGroup}>
               <button type="submit" style={styles.saveButton}>
                 {editingId ? "編集を保存" : "プロンプトを保存"}
               </button>
@@ -1145,6 +1632,18 @@ export default function App() {
               }
             >
               ❤ お気に入り
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleSelectionMode}
+              style={selectionMode ? styles.favoriteFilterButtonActive : styles.favoriteFilterButton}
+            >
+              ☑ {selectionMode ? "選択終了" : "複数選択"}
+            </button>
+
+            <button type="button" onClick={() => setTrashOpen(true)} style={styles.favoriteFilterButton}>
+              🗑 ゴミ箱 {trash.length > 0 ? `(${trash.length})` : ""}
             </button>
 
             <div style={{ flex: 1 }} />
@@ -1201,15 +1700,48 @@ export default function App() {
             )}
           </div>
 
+          {selectionMode && (
+            <div style={styles.bulkToolbar}>
+              <strong>{selectedIds.size}件選択中</strong>
+              <button type="button" onClick={selectAllFiltered} style={styles.bulkButton}>表示中を全選択</button>
+              <button type="button" onClick={() => setSelectedIds(new Set())} style={styles.bulkButton}>選択解除</button>
+              <button type="button" disabled={selectedIds.size === 0} onClick={exportSelectedItems} style={styles.bulkButton}>一括エクスポート</button>
+              <button type="button" disabled={selectedIds.size === 0} onClick={() => { setBulkTagAction("add"); setBulkTagText(""); }} style={styles.bulkButton}>タグ追加</button>
+              <button type="button" disabled={selectedIds.size === 0} onClick={() => { setBulkTagAction("remove"); setBulkTagText(""); }} style={styles.bulkButton}>タグ削除</button>
+              <button type="button" disabled={selectedIds.size === 0} onClick={() => setBulkFavorite(true)} style={styles.bulkButton}>お気に入りON</button>
+              <button type="button" disabled={selectedIds.size === 0} onClick={() => setBulkFavorite(false)} style={styles.bulkButton}>お気に入りOFF</button>
+              <button type="button" disabled={selectedIds.size === 0} onClick={() => setBulkDeleteConfirm(true)} style={styles.bulkDangerButton}>一括削除</button>
+            </div>
+          )}
+
           <main style={{ ...styles.gallery, gridTemplateColumns: `repeat(${displayColCount}, 1fr)` }}>
             {filtered.map((item) => (
-              <article key={item.id} style={styles.card}>
+              <article
+                key={item.id}
+                style={selectedIds.has(item.id) ? { ...styles.card, ...styles.cardSelected } : styles.card}
+                onClick={selectionMode ? () => toggleSelection(item.id) : undefined}
+              >
                 {/* サムネイル */}
-                <div style={styles.cardThumb}>
+                <div
+                  style={styles.cardThumb}
+                  onMouseEnter={(event) => showImageHoverPreview(event, item)}
+                  onMouseLeave={() => setHoverPreview(null)}
+                >
                   {imageMap[item.id] ? (
-                    <img src={imageMap[item.id]} alt="" style={styles.cardFullImage} />
+                    <img src={imageMap[item.id]} alt={item.title} style={styles.cardFullImage} />
                   ) : (
                     <div style={styles.noImageFull}>No Thumbnail</div>
+                  )}
+                  {selectionMode && (
+                    <button
+                      type="button"
+                      onClick={(event) => { event.stopPropagation(); toggleSelection(item.id); }}
+                      style={selectedIds.has(item.id) ? styles.selectionCheckActive : styles.selectionCheck}
+                      aria-pressed={selectedIds.has(item.id)}
+                      aria-label={`${item.title}を${selectedIds.has(item.id) ? "選択解除" : "選択"}`}
+                    >
+                      {selectedIds.has(item.id) ? "✓" : ""}
+                    </button>
                   )}
                   {item.favorite && (() => {
                     const sz = displayColCount <= 4 ? 80 : displayColCount === 5 ? 66 : 52;
@@ -1242,6 +1774,7 @@ export default function App() {
                 <div style={styles.cardInfo}>
                   <div style={{ ...styles.cardTitle, fontSize: displayColCount <= 4 ? "12px" : displayColCount === 5 ? "11px" : "10px" }}>{item.title}</div>
                   <div style={{ ...styles.date, fontSize: displayColCount <= 4 ? "10px" : "9px" }}>{item.createdAt}</div>
+                  {item.notes && <div style={styles.cardNotes} title={item.notes}>{item.notes}</div>}
                 </div>
 
                 {/* アクションボタン */}
@@ -1249,6 +1782,7 @@ export default function App() {
                   <div style={useDenseCardButtons ? { ...styles.cardActionRow, ...styles.cardActionRowDense } : styles.cardActionRow}>
                     <button
                       type="button"
+                      disabled={selectionMode}
                       onClick={() => toggleFavorite(item.id)}
                       style={
                         item.favorite
@@ -1260,6 +1794,8 @@ export default function App() {
                       ❤
                     </button>
                     <button
+                      type="button"
+                      disabled={selectionMode}
                       onClick={() => editItem(item)}
                       style={useDenseCardButtons ? { ...styles.cardIconButtonNormal, ...styles.cardIconButtonDense } : styles.cardIconButtonNormal}
                       title="編集"
@@ -1267,6 +1803,8 @@ export default function App() {
                       📝
                     </button>
                     <button
+                      type="button"
+                      disabled={selectionMode}
                       onClick={() => setConfirmDeleteId(item.id)}
                       style={useDenseCardButtons ? { ...styles.cardIconButtonDelete, ...styles.cardIconButtonDense } : styles.cardIconButtonDelete}
                       title="削除"
@@ -1276,6 +1814,8 @@ export default function App() {
                   </div>
                   <div style={useDenseCardButtons ? { ...styles.cardCopyRow, ...styles.cardCopyRowDense } : styles.cardCopyRow}>
                     <button
+                      type="button"
+                      disabled={selectionMode}
                       onClick={() => copyText(item.positive, "Positive Prompt")}
                       style={
                         useDenseCardButtons
@@ -1286,6 +1826,8 @@ export default function App() {
                       {useDenseCardButtons ? "Pos" : "📋 Pos"}
                     </button>
                     <button
+                      type="button"
+                      disabled={selectionMode}
                       onClick={() => copyText(item.negative, "Negative Prompt")}
                       style={
                         useDenseCardButtons
@@ -1312,6 +1854,26 @@ function parseTags(text) {
     .split(/[、,]+/)
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function assetFingerprint(item) {
+  return [item.title, item.positive, item.negative]
+    .map((value) => String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("ja"))
+    .join("\u241f");
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "日時不明" : date.toLocaleString();
+}
+
+function normalizeImportBackup(value) {
+  if (!value || typeof value !== "object" || !Array.isArray(value.items) || !Array.isArray(value.trash)) return null;
+  return {
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date().toISOString(),
+    items: value.items,
+    trash: value.trash,
+  };
 }
 
 function makeSafeId() {
@@ -1446,19 +2008,23 @@ function deleteAllBrowserImages() {
 
 function loadBrowserState() {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return { items: sampleItems, hasStoredData: false };
+  if (!raw) return { items: sampleItems, trash: [], importBackup: null, hasStoredData: false };
 
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return { items: sampleItems, hasStoredData: false };
-    const untouchedSample = parsed.length === 1
-      && parsed[0]?.id === "sample-1"
-      && parsed[0]?.title === sampleItems[0].title
-      && parsed[0]?.positive === sampleItems[0].positive
-      && parsed[0]?.negative === sampleItems[0].negative;
-    return { items: parsed, hasStoredData: !untouchedSample };
+    const storedItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : null;
+    if (!storedItems) return { items: sampleItems, trash: [], importBackup: null, hasStoredData: false };
+    const storedTrash = Array.isArray(parsed?.trash) ? parsed.trash : [];
+    const importBackup = normalizeImportBackup(parsed?.importBackup);
+    const untouchedSample = storedItems.length === 1
+      && storedItems[0]?.id === "sample-1"
+      && storedItems[0]?.title === sampleItems[0].title
+      && storedItems[0]?.positive === sampleItems[0].positive
+      && storedItems[0]?.negative === sampleItems[0].negative
+      && storedTrash.length === 0;
+    return { items: storedItems, trash: storedTrash, importBackup, hasStoredData: !untouchedSample };
   } catch {
-    return { items: sampleItems, hasStoredData: false };
+    return { items: sampleItems, trash: [], importBackup: null, hasStoredData: false };
   }
 }
 
@@ -1657,13 +2223,32 @@ const styles = {
   },
 
   tagChipInInput: {
-    border: "1px solid rgba(255,122,184,0.45)",
-    background: "rgba(255,122,184,0.14)",
+    border: "none",
+    background: "transparent",
     color: "#ffd7ea",
-    borderRadius: "999px",
-    padding: "5px 10px",
+    borderRadius: "999px 0 0 999px",
+    padding: "5px 7px 5px 10px",
     fontSize: "13px",
     cursor: "pointer",
+  },
+  tagChipGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    border: "1px solid rgba(255,122,184,0.45)",
+    background: "rgba(255,122,184,0.14)",
+    borderRadius: "999px",
+    overflow: "hidden",
+  },
+  tagChipRemove: {
+    alignSelf: "stretch",
+    border: "none",
+    borderLeft: "1px solid rgba(255,122,184,0.35)",
+    background: "rgba(255,80,110,0.12)",
+    color: "#ffadc9",
+    padding: "2px 8px 3px 6px",
+    cursor: "pointer",
+    fontSize: "15px",
+    lineHeight: 1,
   },
 
   tagGuide: {
@@ -1672,9 +2257,8 @@ const styles = {
     fontSize: "11px",
     textAlign: "left",
     paddingLeft: "2px",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
+    whiteSpace: "normal",
+    lineHeight: 1.45,
   },
 
 
@@ -1703,6 +2287,9 @@ const styles = {
     gridTemplateColumns: "clamp(360px, 42vw, 640px) minmax(0, 1fr)",
     gap: "20px",
     alignItems: "start",
+  },
+  workspaceDesktopCollapsed: {
+    gridTemplateColumns: "72px minmax(0, 1fr)",
   },
   header: {
     display: "flex",
@@ -1896,13 +2483,12 @@ const styles = {
   },
   formArea: {
     boxSizing: "border-box",
-    border: "1px solid rgba(255,79,163,0.45)",
+    border: "1px solid transparent",
     background: "rgba(12,14,20,0.92)",
     borderRadius: "22px",
     padding: "22px",
     marginBottom: "28px",
-    boxShadow:
-      "0 0 0 1px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.4)",
+    boxShadow: "none",
   },
   formAreaMobile: {
     padding: "14px",
@@ -1912,8 +2498,8 @@ const styles = {
     marginBottom: 0,
     position: "sticky",
     top: "112px",
-    maxHeight: "calc(100vh - 126px)",
-    overflowY: "auto",
+    maxHeight: "var(--prompt-panel-height, calc(100dvh - 150px))",
+    overflow: "hidden",
   },
   sectionTitle: { margin: "0 0 14px", fontSize: "17px", textAlign: "left" },
   form: { display: "grid", gap: "14px", width: "100%", minWidth: 0 },
@@ -1932,6 +2518,18 @@ const styles = {
     lineHeight: 1.3,
     letterSpacing: "0.02em",
     color: "#f3f3f5",
+  },
+  labelHeading: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "10px",
+  },
+  labelHint: {
+    color: "#858a96",
+    fontSize: "10px",
+    fontWeight: 500,
+    textAlign: "right",
   },
   input: {
     width: "100%",
@@ -1969,6 +2567,22 @@ const styles = {
     minWidth: 0,
     boxSizing: "border-box",
     minHeight: "110px",
+    resize: "vertical",
+    border: "1px solid #353842",
+    borderRadius: "12px",
+    background: "#12151b",
+    color: "#fff",
+    padding: "12px 14px",
+    fontSize: "14px",
+    outline: "none",
+    lineHeight: 1.5,
+  },
+  notesTextarea: {
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
+    minHeight: "82px",
     resize: "vertical",
     border: "1px solid #353842",
     borderRadius: "12px",
@@ -2177,6 +2791,19 @@ const styles = {
     color: "#f1f1f4",
   },
   date: { color: "#858a96", fontSize: "10px" },
+  cardNotes: {
+    marginTop: "4px",
+    paddingTop: "5px",
+    borderTop: "1px solid rgba(255,255,255,0.07)",
+    color: "#aeb3bf",
+    fontSize: "10px",
+    lineHeight: 1.4,
+    whiteSpace: "pre-wrap",
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+  },
   cardActions: {
     padding: "6px 8px 8px",
     display: "flex",
@@ -2419,5 +3046,298 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     lineHeight: 1,
+  },
+  confirmDialogWide: {
+    width: "min(760px, calc(100vw - 28px))",
+    maxHeight: "86vh",
+    overflowY: "auto",
+    boxSizing: "border-box",
+    textAlign: "left",
+  },
+  modalTitle: {
+    margin: "0 0 8px",
+    color: "#fff",
+    fontSize: "20px",
+    fontWeight: 800,
+    textAlign: "left",
+  },
+  modalFileName: {
+    color: "#aeb3c0",
+    fontSize: "13px",
+    overflowWrap: "anywhere",
+    marginBottom: "16px",
+  },
+  modalHeaderRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginBottom: "14px",
+  },
+  modalCloseButton: {
+    width: "36px",
+    height: "36px",
+    borderRadius: "999px",
+    border: "1px solid #3a3f4b",
+    background: "#181c24",
+    color: "#fff",
+    fontSize: "20px",
+    cursor: "pointer",
+  },
+  modalInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    margin: "14px 0 18px",
+    border: "1px solid #3b4050",
+    borderRadius: "12px",
+    background: "#11151d",
+    color: "#fff",
+    padding: "12px 14px",
+    fontSize: "14px",
+  },
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "10px",
+    marginBottom: "16px",
+  },
+  summaryCell: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "3px",
+    padding: "12px 8px",
+    border: "1px solid #333846",
+    borderRadius: "12px",
+    background: "#11151d",
+    color: "#c5c9d3",
+    fontSize: "12px",
+  },
+  importOptions: {
+    display: "grid",
+    gap: "9px",
+    marginBottom: "14px",
+  },
+  importOption: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "10px",
+    border: "1px solid #343947",
+    borderRadius: "12px",
+    padding: "11px 12px",
+    cursor: "pointer",
+    color: "#f2f3f6",
+  },
+  safetyNote: {
+    margin: "0 0 18px",
+    borderRadius: "10px",
+    padding: "10px 12px",
+    background: "rgba(86,200,145,0.1)",
+    color: "#a8e4c4",
+    fontSize: "12px",
+    lineHeight: 1.5,
+  },
+  emptyMessage: {
+    color: "#9ca1ae",
+    padding: "34px 0",
+    textAlign: "center",
+  },
+  trashList: {
+    display: "grid",
+    gap: "9px",
+    maxHeight: "55vh",
+    overflowY: "auto",
+    marginBottom: "16px",
+  },
+  trashRow: {
+    display: "grid",
+    gridTemplateColumns: "64px minmax(0, 1fr) auto",
+    gap: "11px",
+    alignItems: "center",
+    padding: "9px",
+    border: "1px solid #303542",
+    borderRadius: "12px",
+    background: "#11151d",
+  },
+  trashThumb: {
+    width: "64px",
+    height: "64px",
+    objectFit: "cover",
+    borderRadius: "8px",
+  },
+  trashNoImage: {
+    width: "64px",
+    height: "64px",
+    display: "grid",
+    placeItems: "center",
+    borderRadius: "8px",
+    background: "#20242e",
+    color: "#737987",
+    fontSize: "9px",
+  },
+  trashInfo: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+    color: "#f2f3f6",
+    overflowWrap: "anywhere",
+  },
+  trashActions: {
+    display: "flex",
+    gap: "7px",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+  },
+  smallActionButton: {
+    border: "1px solid rgba(100,190,150,0.45)",
+    borderRadius: "9px",
+    background: "rgba(80,180,135,0.12)",
+    color: "#b6ead0",
+    padding: "7px 9px",
+    cursor: "pointer",
+  },
+  smallDangerButton: {
+    border: "1px solid rgba(255,90,115,0.45)",
+    borderRadius: "9px",
+    background: "rgba(255,80,110,0.1)",
+    color: "#ff9bae",
+    padding: "7px 9px",
+    cursor: "pointer",
+  },
+  formHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginBottom: "14px",
+  },
+  formHeaderCollapsed: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 0,
+  },
+  formToggleButton: {
+    width: "34px",
+    height: "34px",
+    flex: "0 0 34px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    border: "1px solid #363b47",
+    borderRadius: "9px",
+    background: "#171a21",
+    color: "#d8dbe3",
+    cursor: "pointer",
+  },
+  formMobileToggleButton: {
+    width: "38px",
+    height: "38px",
+    flex: "0 0 38px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    border: "1px solid rgba(255,122,184,0.4)",
+    borderRadius: "50%",
+    background: "rgba(255,79,163,0.09)",
+    color: "#ffd4e8",
+    cursor: "pointer",
+  },
+  formAreaCollapsed: {
+    padding: "12px",
+    overflow: "hidden",
+  },
+  bulkToolbar: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "8px",
+    margin: "-6px 0 16px",
+    padding: "11px 12px",
+    border: "1px solid rgba(255,122,184,0.35)",
+    borderRadius: "14px",
+    background: "rgba(255,79,163,0.07)",
+    color: "#f4f5f8",
+  },
+  bulkButton: {
+    border: "1px solid #3a3f4b",
+    borderRadius: "9px",
+    background: "#191d26",
+    color: "#e5e7ec",
+    padding: "7px 10px",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  bulkDangerButton: {
+    border: "1px solid rgba(255,90,115,0.5)",
+    borderRadius: "9px",
+    background: "rgba(255,80,110,0.12)",
+    color: "#ffb0bf",
+    padding: "7px 10px",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  cardSelected: {
+    border: "2px solid #ff6fb3",
+    outline: "2px solid rgba(255,111,179,0.18)",
+  },
+  selectionCheck: {
+    position: "absolute",
+    top: "9px",
+    right: "9px",
+    zIndex: 4,
+    width: "32px",
+    height: "32px",
+    borderRadius: "9px",
+    border: "2px solid rgba(255,255,255,0.78)",
+    background: "rgba(10,12,17,0.75)",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: "18px",
+    fontWeight: 900,
+  },
+  selectionCheckActive: {
+    position: "absolute",
+    top: "9px",
+    right: "9px",
+    zIndex: 4,
+    width: "32px",
+    height: "32px",
+    borderRadius: "9px",
+    border: "2px solid #ff9acb",
+    background: "#d93483",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: "18px",
+    fontWeight: 900,
+  },
+  hoverPreview: {
+    position: "fixed",
+    zIndex: 9000,
+    pointerEvents: "none",
+    border: "1px solid rgba(255,122,184,0.55)",
+    borderRadius: "16px",
+    overflow: "hidden",
+    background: "rgba(10,12,17,0.98)",
+    boxShadow: "0 24px 70px rgba(0,0,0,0.66)",
+  },
+  hoverPreviewImage: {
+    width: "100%",
+    maxHeight: "calc(70vh - 42px)",
+    display: "block",
+    objectFit: "contain",
+    background: "#080a0f",
+  },
+  hoverPreviewTitle: {
+    padding: "9px 12px",
+    color: "#f4f4f7",
+    fontSize: "13px",
+    fontWeight: 700,
+    textAlign: "left",
   },
 };
