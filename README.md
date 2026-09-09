@@ -6,7 +6,7 @@
 
 ---
 
-## [☕ Support on Ko-fi](https://ko-fi.com/puniq)
+<a href="https://ko-fi.com/puniq"><img src="assets/support_me_on_kofi_red.avif" alt="Support me on Ko-fi" width="220"></a>
 
 **[日本語](#日本語) | [English](#english) | [繁體中文](#繁體中文) | [Español](#español)**
 
@@ -165,7 +165,7 @@ BAT起動時はブラウザを変更しても同じ`data`フォルダを読み�
 
 このプロジェクトが役に立った場合は、Ko-fiで今後の開発を応援していただけると嬉しいです。
 
-☕ https://ko-fi.com/puniq
+<a href="https://ko-fi.com/puniq"><img src="assets/support_me_on_kofi_red.avif" alt="Support me on Ko-fi" width="220"></a>
 
 ご支援ありがとうございます！
 
@@ -304,7 +304,7 @@ Browsers share the same `data` folder when launched through the BAT. Export ZIP 
 
 If you find this project useful and would like to support future development, you can support me on Ko-fi.
 
-☕ https://ko-fi.com/puniq
+<a href="https://ko-fi.com/puniq"><img src="assets/support_me_on_kofi_red.avif" alt="Support me on Ko-fi" width="220"></a>
 
 Thank you for your support!
 
@@ -443,7 +443,7 @@ npm run dev
 
 如果這個專案對您有幫助，歡迎透過 Ko-fi 支持後續開發。
 
-☕ https://ko-fi.com/puniq
+<a href="https://ko-fi.com/puniq"><img src="assets/support_me_on_kofi_red.avif" alt="Support me on Ko-fi" width="220"></a>
 
 感謝您的支持！
 
@@ -582,7 +582,7 @@ Los navegadores comparten la misma carpeta `data` al iniciar mediante el BAT. Ex
 
 Si este proyecto te resulta útil y deseas apoyar su desarrollo futuro, puedes apoyarme en Ko-fi.
 
-☕ https://ko-fi.com/puniq
+<a href="https://ko-fi.com/puniq"><img src="assets/support_me_on_kofi_red.avif" alt="Support me on Ko-fi" width="220"></a>
 
 ¡Muchas gracias por tu apoyo!
 
