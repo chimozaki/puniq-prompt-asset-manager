@@ -1543,13 +1543,12 @@ export default function App() {
 
           <div className="prompt-form-footer" style={styles.bottomRow}>
             <div className="prompt-image-select" style={styles.imageSelectArea}>
-              <div style={styles.thumbnailPickerWrap}>
+              <div className="prompt-thumbnail-wrap" style={styles.thumbnailPickerWrap}>
                 <label className="prompt-image-picker" style={form.imagePreview ? styles.fileLabelSelected : styles.fileLabel}>
                   {form.imagePreview ? (
                     <>
                       <img src={form.imagePreview} alt="" style={styles.uploadPreviewImage} />
                       <span style={styles.fileTitle}>画像を変更</span>
-                      <span style={styles.fileNote}>{form.imageFileName}</span>
                     </>
                   ) : (
                     <>
@@ -2550,7 +2549,7 @@ const styles = {
     maxWidth: "100%",
     minWidth: 0,
     boxSizing: "border-box",
-    minHeight: "140px",
+    minHeight: "200px",
     resize: "vertical",
     border: "1px solid #353842",
     borderRadius: "12px",
@@ -2566,7 +2565,7 @@ const styles = {
     maxWidth: "100%",
     minWidth: 0,
     boxSizing: "border-box",
-    minHeight: "110px",
+    minHeight: "160px",
     resize: "vertical",
     border: "1px solid #353842",
     borderRadius: "12px",
@@ -2582,7 +2581,7 @@ const styles = {
     maxWidth: "100%",
     minWidth: 0,
     boxSizing: "border-box",
-    minHeight: "82px",
+    minHeight: "120px",
     resize: "vertical",
     border: "1px solid #353842",
     borderRadius: "12px",
