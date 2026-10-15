@@ -26,3 +26,9 @@ data/images/
 *.njsproj
 *.sln
 *.sw?
+
+# Local recovery history and write locks
+data/backups/
+data/.write-lock
+data/*.tmp
+data/*.json.*.tmp

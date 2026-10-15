@@ -2,6 +2,10 @@
 
 **Version 1.5.0 · 2026-09-10** — [Release notes / 更新履歴](RELEASE_NOTES.md)
 
+> **データ保護の改修（未リリース）**：競合する保存は停止し、保存履歴から復元できます。完全削除・初期化後も復旧用画像と履歴は残ります。保存APIに接続できない場合は編集を停止します。[データ保護と復元手順](DATA_SAFETY.md)
+>
+> **Unreleased data protection update:** stale writes are rejected; file history supports recovery. Recovery images/history remain after deletion or reset. Editing stops if the storage API is unavailable. [Recovery details (Japanese)](DATA_SAFETY.md)
+
 ![PuniQ Prompt Asset Manager](screenshot_exsample.png)
 
 ---

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
+import { createStorageClient, readCache, writeCache } from "./storage-client.js";
 import "./form-panel.css";
 
 const STORAGE_KEY = "puniq_prompt_asset_manager_v1";
@@ -8,7 +9,13 @@ const STORE_NAME = "images";
 const SORT_ORDER_KEY = "puniq_sort_order";
 const COL_COUNT_KEY = "puniq_col_count";
 const FORM_COLLAPSED_KEY = "puniq_form_collapsed";
-const LOCAL_STORAGE_API = "/api/local-storage";
+const fileStorage = createStorageClient();
+const browserCache = {
+  getItem: (key) => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
+};
+const readBrowserCache = (key) => readCache(browserCache, key);
+const writeBrowserCache = (key, value) => writeCache(browserCache, key, value);
 const DEFAULT_SORT_ORDER = "newest";
 const DEFAULT_COL_COUNT = 4;
 const EXPORT_THUMBNAILS_DIR = "thumbnails";
@@ -83,6 +90,14 @@ export default function App() {
   const [storageMode, setStorageMode] = useState("checking");
   const [migrationNotice, setMigrationNotice] = useState(false);
   const skipNextLocalSave = useRef(false);
+  const saveGeneration = useRef(0);
+  const savingRef = useRef(false);
+  const allowReloadRef = useRef(false);
+  const [saveState, setSaveState] = useState("loading");
+  const [storageError, setStorageError] = useState("");
+  const [cacheWarning, setCacheWarning] = useState(false);
+  const [backupList, setBackupList] = useState(null);
+  const [restoring, setRestoring] = useState(false);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [imageMap, setImageMap] = useState({});
@@ -100,12 +115,12 @@ export default function App() {
   const [bulkTagAction, setBulkTagAction] = useState(null);
   const [bulkTagText, setBulkTagText] = useState("");
   const [hoverPreview, setHoverPreview] = useState(null);
-  const [formCollapsed, setFormCollapsed] = useState(() => localStorage.getItem(FORM_COLLAPSED_KEY) === "true");
+  const [formCollapsed, setFormCollapsed] = useState(() => readBrowserCache(FORM_COLLAPSED_KEY) === "true");
   const formPanelRef = useRef(null);
   const [resetConfirmStep, setResetConfirmStep] = useState(0);
-  const [sortOrder, setSortOrder] = useState(() => localStorage.getItem(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER);
+  const [sortOrder, setSortOrder] = useState(() => readBrowserCache(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
-  const [colCount, setColCount] = useState(() => Number(localStorage.getItem(COL_COUNT_KEY)) || DEFAULT_COL_COUNT);
+  const [colCount, setColCount] = useState(() => Number(readBrowserCache(COL_COUNT_KEY)) || DEFAULT_COL_COUNT);
   const [viewportWidth, setViewportWidth] = useState(() => {
     if (typeof window === "undefined") return DESKTOP_SPLIT_MIN_WIDTH;
     return window.innerWidth;
@@ -174,11 +189,12 @@ export default function App() {
       const browserItems = browserState.items;
       const browserTrash = browserState.trash;
       const browserImportBackup = browserState.importBackup;
-      const browserSortOrder = localStorage.getItem(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER;
-      const browserColCount = Number(localStorage.getItem(COL_COUNT_KEY)) || DEFAULT_COL_COUNT;
+      const browserSortOrder = readBrowserCache(SORT_ORDER_KEY) || DEFAULT_SORT_ORDER;
+      const browserColCount = Number(readBrowserCache(COL_COUNT_KEY)) || DEFAULT_COL_COUNT;
 
       try {
         const stored = await loadLocalFileData();
+        if (cancelled) return;
         localFileStorageEnabled = true;
 
         if (stored.exists) {
@@ -191,14 +207,13 @@ export default function App() {
             setColCount(Number(data.colCount) || DEFAULT_COL_COUNT);
           }
         } else if (browserState.hasStoredData) {
-          for (const item of browserItems) {
+          const migrationItems = [...browserItems, ...browserTrash, ...(browserImportBackup?.items || []), ...(browserImportBackup?.trash || [])];
+          for (const item of migrationItems) {
             if (!item.hasImage) continue;
-            try {
-              const image = await getBrowserImage(item.id);
-              if (image) await saveLocalFileImage(item.id, image);
-            } catch (error) {
-              console.warn(`Could not migrate image ${item.id}; prompt migration will continue.`, error);
-            }
+            const imageId = item.imageId || item.id;
+            const image = await getBrowserImage(imageId);
+            if (!image) throw new Error("移行する画像が見つかりません。ブラウザの元データを保持して停止しました。");
+            await saveLocalFileImage(imageId, image);
           }
 
           await saveLocalFileData({
@@ -228,17 +243,19 @@ export default function App() {
           setMigrationNotice(true);
         }
 
-        if (!cancelled) setStorageMode("local");
+        if (!cancelled) { skipNextLocalSave.current = true; setStorageMode("local"); setSaveState(stored.exists || browserState.hasStoredData ? "saved" : "empty"); }
       } catch (error) {
-        console.warn("Local file storage is unavailable; using browser storage.", error);
-        localFileStorageEnabled = false;
+        console.warn("Local file storage could not be loaded; writes are disabled.", error);
+        localFileStorageEnabled = Boolean(error.status);
         if (!cancelled) {
           setItems(browserItems);
           setTrash(browserTrash);
           setImportBackup(browserImportBackup);
           setSortOrder(browserSortOrder);
           setColCount(browserColCount);
-          setStorageMode("browser");
+          setStorageMode("error");
+          setStorageError(error.message || "保存先を読み込めません。BATから起動してください。");
+          setSaveState("error");
         }
       } finally {
         if (!cancelled) setLoaded(true);
@@ -251,56 +268,58 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, items, trash, importBackup }));
-    localStorage.setItem(SORT_ORDER_KEY, sortOrder);
-    localStorage.setItem(COL_COUNT_KEY, String(colCount));
-
-    let saveTimer = null;
-    if (storageMode === "local") {
-      if (skipNextLocalSave.current) {
-        skipNextLocalSave.current = false;
-      } else {
-        saveTimer = window.setTimeout(() => {
-          saveLocalFileData({
-            version: 2,
-            items,
-            trash,
-            importBackup,
-            sortOrder,
-            colCount,
-          }).then(() => {
-            setMigrationNotice(false);
-          }).catch((error) => {
-            console.error(error);
-            setStorageMode("error");
-          });
-        }, 200);
-      }
+    if (!loaded || storageMode !== "local") return;
+    if (skipNextLocalSave.current) {
+      skipNextLocalSave.current = false;
+      return;
     }
+    const generation = ++saveGeneration.current;
+    const snapshot = { version: 2, items, trash, importBackup, sortOrder, colCount };
+    savingRef.current = true;
+    Promise.resolve().then(() => setSaveState("saving"));
+    saveLocalFileData(snapshot).then(() => {
+      if (generation !== saveGeneration.current) return;
+      const cached = writeBrowserCache(STORAGE_KEY, JSON.stringify({ version: 2, items, trash, importBackup }));
+      writeBrowserCache(SORT_ORDER_KEY, sortOrder);
+      writeBrowserCache(COL_COUNT_KEY, String(colCount));
+      setCacheWarning(!cached);
+      setMigrationNotice(false);
+      setSaveState("saved");
+      savingRef.current = false;
+    }).catch((error) => {
+      setStorageError(error.message || "保存に失敗しました。");
+      setSaveState("error");
+      setStorageMode("error");
+      // Keep the unsaved snapshot in memory, and keep the close warning enabled.
+    });
+  }, [items, trash, importBackup, sortOrder, colCount, loaded, storageMode]);
 
+  useEffect(() => {
+    if (!loaded) return;
     const allStoredItems = [...items, ...trash];
     const toLoad = allStoredItems.filter((item) => item.hasImage && !imageMap[item.id]);
     let cancelled = false;
     if (toLoad.length > 0) {
       (async () => {
         const next = { ...imageMap };
+        let changed = false;
         for (const item of toLoad) {
-          const img = await getImage(item.id);
-          if (img) next[item.id] = img;
+          try {
+            const img = await getImage(item.imageId || item.id);
+            if (img) { next[item.id] = img; changed = true; }
+          } catch (error) { console.warn("Could not read thumbnail; the stored record is preserved.", error); }
         }
-        if (!cancelled) setImageMap(next);
+        if (!cancelled && changed) setImageMap(next);
       })();
     }
 
     return () => {
       cancelled = true;
-      if (saveTimer) window.clearTimeout(saveTimer);
     };
-  }, [items, trash, importBackup, sortOrder, colCount, loaded, storageMode, imageMap]);
+  }, [items, trash, loaded, imageMap]);
 
   useEffect(() => {
-    localStorage.setItem(FORM_COLLAPSED_KEY, String(formCollapsed));
+    writeBrowserCache(FORM_COLLAPSED_KEY, String(formCollapsed));
   }, [formCollapsed]);
 
   useEffect(() => {
@@ -322,6 +341,71 @@ export default function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    const onClose = (event) => {
+      const hasDraft = Boolean(form.title || form.positive || form.negative || form.notes || form.tagsText || form.tagDraft || form.imagePreview);
+      if (!allowReloadRef.current && (savingRef.current || hasDraft)) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onClose);
+    return () => window.removeEventListener("beforeunload", onClose);
+  }, [form]);
+
+  async function showBackups() {
+    try { setBackupList((await fileStorage.backups()).backups); }
+    catch (error) { setStorageError(error.message); showStatus(error.message); }
+  }
+
+  async function restoreDiskBackup(id) {
+    if (!window.confirm("この保存履歴へ戻します。現在の未保存内容が必要な場合は、先に書き出してください。復元を実行しますか？")) return;
+    setRestoring(true);
+    try {
+      await fileStorage.restore(id);
+      allowReloadRef.current = true;
+      window.location.reload();
+    } catch (error) { setStorageError(error.message); showStatus(error.message); }
+    finally { setRestoring(false); }
+  }
+
+  async function exportRecovery() {
+    try {
+      const zip = new JSZip();
+      const recovery = { version: 2, items, trash, importBackup, sortOrder, colCount,
+        draft: { ...form, imageFile: null }, images: { ...imageMap }, missingImages: [] };
+      const allItems = [...items, ...trash, ...(importBackup?.items || []), ...(importBackup?.trash || [])];
+      for (const item of allItems) {
+        if (!item.hasImage) continue;
+        const key = item.imageId || item.id;
+        try { recovery.images[key] = await getImage(key) || imageMap[item.id] || ""; }
+        catch { recovery.images[key] = imageMap[item.id] || ""; }
+        if (!recovery.images[key]) recovery.missingImages.push(key);
+      }
+      zip.file("recovery.json", JSON.stringify(recovery, null, 2));
+      // Also include the regular import format so users can recover without tools.
+      const csvItems = [...items, ...trash];
+      if (form.title || form.positive || form.negative || form.notes || form.imagePreview || form.tagsText || form.tagDraft) {
+        csvItems.push({ title: form.title || "未保存の入力", positive: form.positive, negative: form.negative,
+          notes: form.notes, tags: parseTags([form.tagsText, form.tagDraft].filter(Boolean).join(",")), _imageData: form.imagePreview });
+      }
+      const rows = [["タイトル", "PositivePrompt", "NegativePrompt", "タグ", "備考", "サムネイル画像", "お気に入り"]];
+      for (const item of csvItems) rows.push([item.title, item.positive, item.negative, (item.tags || []).join("、"),
+        item.notes, item._imageData || recovery.images[item.imageId || item.id] || "", item.favorite ? "true" : "false"]);
+      zip.file("recovery.csv", "\ufeff" + rows.map((row) => row.map(escapeCsvValue).join(",")).join("\n"));
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `puniq-recovery-${Date.now()}.zip`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showStatus(recovery.missingImages.length > 0
+        ? "復旧用ZIPを書き出しました。一部の画像を取得できませんでした。元のdataフォルダも保持してください。"
+        : "復旧用ZIPを書き出しました。Importから一覧・ゴミ箱・入力中の内容を取り込めます。");
+    } catch (error) { showStatus(`復旧用ZIPを作成できません: ${error.message}`); }
+  }
 
   function showStatus(message) {
     setStatus(message);
@@ -467,9 +551,7 @@ export default function App() {
       };
 
       if (hasImagePreview) {
-        await saveImage(id, form.imagePreview);
-      } else if (editingId) {
-        await deleteImage(id);
+        newItem.imageId = await saveImage(id, form.imagePreview);
       }
 
       setImageMap((current) => {
@@ -492,15 +574,22 @@ export default function App() {
       });
       setForm(EMPTY_FORM);
       setEditingId(null);
-      showStatus(editingId ? "編集を保存しました" : "保存しました");
+      showStatus("変更を反映しました。保存状態は画面上部で確認できます。");
     } catch (error) {
       console.error(error);
-      showStatus("保存に失敗しました");
+      setStorageError(error.message || "保存に失敗しました。");
+      setStorageMode("error");
+      setSaveState("error");
+      savingRef.current = true;
     }
   };
 
   async function editItem(item) {
-    const preview = item.hasImage ? await getImage(item.id) : "";
+    let preview;
+    try {
+      preview = item.hasImage ? await getImage(item.imageId || item.id) : "";
+      if (item.hasImage && !preview) throw new Error("画像を読み込めないため編集を開始できません。保存履歴または元の画像を確認してください。");
+    } catch (error) { showStatus(error.message); return; }
 
     setEditingId(item.id);
     setFormCollapsed(false);
@@ -545,7 +634,7 @@ export default function App() {
       };
 
       if (hasImagePreview) {
-        await saveImage(id, form.imagePreview);
+        newItem.imageId = await saveImage(id, form.imagePreview);
         setImageMap((current) => ({
           ...current,
           [id]: form.imagePreview,
@@ -555,10 +644,13 @@ export default function App() {
       setItems((current) => [newItem, ...current]);
       setEditingId(null);
       setForm(EMPTY_FORM);
-      showStatus("新規として保存しました");
+      showStatus("新規追加しました。保存状態は画面上部で確認できます。");
     } catch (error) {
       console.error(error);
-      showStatus("新規保存に失敗しました");
+      setStorageError(error.message || "新規保存に失敗しました。");
+      setStorageMode("error");
+      setSaveState("error");
+      savingRef.current = true;
     }
   };
 
@@ -607,7 +699,6 @@ export default function App() {
     const idSet = new Set(ids);
     if (idSet.size === 0) return;
     try {
-      await Promise.all([...idSet].map((id) => deleteImage(id)));
       setTrash((current) => current.filter((item) => !idSet.has(item.id)));
       setImageMap((current) => {
         const next = { ...current };
@@ -665,21 +756,6 @@ export default function App() {
 
   async function clearAllData() {
     try {
-      await deleteAllImages();
-      if (localFileStorageEnabled) {
-        await saveLocalFileData({
-          version: 2,
-          items: [],
-          trash: [],
-          importBackup: null,
-          sortOrder: DEFAULT_SORT_ORDER,
-          colCount: DEFAULT_COL_COUNT,
-        });
-      }
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, items: [], trash: [], importBackup: null }));
-      localStorage.removeItem(SORT_ORDER_KEY);
-      localStorage.removeItem(COL_COUNT_KEY);
 
       setItems([]);
       setTrash([]);
@@ -803,7 +879,8 @@ export default function App() {
     const usedFileNames = new Set();
 
     for (const item of sourceItems) {
-      const image = item.hasImage ? await getImage(item.id) : "";
+      const image = item.hasImage ? await getImage(item.imageId || item.id) : "";
+      if (item.hasImage && !image) throw new Error("画像が見つかりません。画像を欠いたZIPの作成を停止しました。");
 
       let imageFileName = "";
       if (image) {
@@ -1023,7 +1100,6 @@ export default function App() {
 
   async function applyPendingImport() {
     if (!pendingImport) return;
-    const savedImportIds = [];
     try {
       const backup = {
         createdAt: new Date().toISOString(),
@@ -1041,8 +1117,8 @@ export default function App() {
       });
       for (const item of accepted) {
         if (item._imageData) {
-          await saveImage(item.id, item._imageData);
-          savedImportIds.push(item.id);
+          const imageId = await saveImage(item.id, item._imageData);
+          cleanItems.find((clean) => clean.id === item.id).imageId = imageId;
         }
       }
       setImageMap((current) => {
@@ -1069,7 +1145,6 @@ export default function App() {
       showStatus(`${cleanItems.length}件をインポートしました`);
     } catch (error) {
       console.error(error);
-      await Promise.allSettled(savedImportIds.map((id) => deleteImage(id)));
       showStatus("インポートの保存に失敗しました");
     }
   }
@@ -1078,8 +1153,6 @@ export default function App() {
     if (!importBackup) return;
     try {
       const backupIds = new Set([...importBackup.items, ...importBackup.trash].map((item) => item.id));
-      const currentIds = new Set([...items, ...trash].map((item) => item.id));
-      await Promise.all([...currentIds].filter((id) => !backupIds.has(id)).map((id) => deleteImage(id)));
       setItems(importBackup.items);
       setTrash(importBackup.trash);
       setImageMap((current) => {
@@ -1111,7 +1184,8 @@ export default function App() {
 
 
   return (
-    <div style={isMobileView ? { ...styles.page, ...styles.pageMobile } : styles.page}>
+    <>
+    <div inert={!loaded || storageMode === "error" || backupList !== null || undefined} style={isMobileView ? { ...styles.page, ...styles.pageMobile } : styles.page}>
       <header style={isMobileView ? { ...styles.header, ...styles.headerMobile } : styles.header}>
         <div>
           <h1 style={isMobileView ? { ...styles.title, ...styles.titleMobile } : styles.title}>
@@ -1119,6 +1193,10 @@ export default function App() {
             <span style={styles.versionBadge}>{APP_VERSION}</span>
           </h1>
           <p style={isMobileView ? { ...styles.subtitle, ...styles.subtitleMobile } : styles.subtitle}>AIイラスト用Prompt Assetを保存・検索・管理</p>
+          <p role="status" aria-live="polite" style={{ fontSize: 13, marginTop: 8 }}>
+            {saveState === "saving" ? "保存中です。この画面を閉じないでください。" : saveState === "saved" ? "ローカル保存済み" : saveState === "error" ? "未保存・書き込み停止中" : saveState === "empty" ? "保存先の準備完了（まだ保存データはありません）" : "保存先を確認中"}
+            {cacheWarning && "（ブラウザ内の補助保存は利用できません）"}
+          </p>
           {loaded && (storageMode !== "local" || migrationNotice) && (
             <div
               style={storageMode === "error" ? { ...styles.storageWarning, ...styles.storageWarningError } : styles.storageWarning}
@@ -1162,6 +1240,8 @@ export default function App() {
               style={styles.fileInput}
             />
           </label>
+
+          <button type="button" onClick={showBackups} disabled={saveState === "saving"} style={isMobileView ? { ...styles.toolButton, ...styles.toolButtonMobile } : styles.toolButton}>保存履歴</button>
 
           <button type="button" onClick={exportPromptsCsv} style={isMobileView ? { ...styles.toolButton, ...styles.toolButtonMobile } : styles.toolButton}>
             📤 Export
@@ -1313,7 +1393,7 @@ export default function App() {
         <div style={{ ...styles.confirmOverlay, zIndex: 10020 }} role="alertdialog" aria-modal="true">
           <div style={styles.confirmDialog}>
             <p style={styles.confirmText}>{permanentDeleteIds.length}件を完全に削除しますか？</p>
-            <p style={styles.confirmSubTextStrong}>画像を含めて削除され、この操作は取り消せません。</p>
+            <p style={styles.confirmSubTextStrong}>一覧から削除します。復旧用の保存履歴と画像は残ります。</p>
             <div style={styles.confirmButtons}>
               <button type="button" onClick={() => setPermanentDeleteIds([])} style={styles.confirmCancelButton}>キャンセル</button>
               <button type="button" onClick={async () => { const ids = [...permanentDeleteIds]; setPermanentDeleteIds([]); await permanentlyDeleteTrashItems(ids); }} style={styles.confirmDeleteButton}>完全に削除</button>
@@ -1391,7 +1471,7 @@ export default function App() {
               <>
                 <p style={styles.confirmText}>本当に全データを初期化しますか？</p>
                 <p style={styles.confirmSubTextStrong}>
-                  この操作は取り消せません。
+                  現在の一覧を空にします。復旧用の保存履歴と画像は残ります。
                 </p>
                 <div style={styles.confirmButtons}>
                   <button
@@ -1668,7 +1748,7 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setSortOrder(key);
-                        localStorage.setItem(SORT_ORDER_KEY, key);
+                        writeBrowserCache(SORT_ORDER_KEY, key);
                         setSortMenuOpen(false);
                       }}
                       style={sortOrder === key ? styles.sortMenuItemActive : styles.sortMenuItem}
@@ -1688,7 +1768,7 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setColCount(n);
-                      localStorage.setItem(COL_COUNT_KEY, n);
+                      writeBrowserCache(COL_COUNT_KEY, n);
                     }}
                     style={selectedColButton === n ? styles.colButtonActive : styles.colButton}
                   >
@@ -1844,6 +1924,44 @@ export default function App() {
         </section>
       </div>
     </div>
+    {storageMode === "error" && (
+      <div style={{ ...styles.confirmOverlay, padding: 16, zIndex: 11000 }} role="alertdialog" aria-modal="true" aria-labelledby="storage-error-title">
+        <div style={{ ...styles.confirmDialog, ...styles.recoveryDialog }}>
+          <h2 id="storage-error-title" style={styles.modalTitle}>データを保護するため保存を停止しました</h2>
+          <p style={styles.confirmText}>{storageError}</p>
+          <p style={styles.confirmSubTextStrong}>未保存の変更はこの画面に保持しています。必要な内容をZIPへ書き出してから、最新のデータを読み直してください。</p>
+          <p role="status">{status}</p>
+          <div style={{ ...styles.confirmButtons, flexDirection: "column", alignItems: "stretch" }}>
+            <button type="button" onClick={exportRecovery} style={styles.confirmSupportButton}>未保存内容・入力内容を復旧用ZIPへ書き出す</button>
+            <button type="button" onClick={showBackups} style={styles.confirmSupportButton}>保存履歴を確認</button>
+            <button type="button" onClick={() => {
+              if (window.confirm("未保存の変更は失われます。必要な内容を書き出しましたか？")) {
+                allowReloadRef.current = true;
+                window.location.reload();
+              }
+            }} style={styles.confirmCancelButton}>最新のデータを読み直す</button>
+          </div>
+        </div>
+      </div>
+    )}
+    {backupList !== null && (
+      <div style={{ ...styles.confirmOverlay, padding: 16, zIndex: 12000 }} role="dialog" aria-modal="true" aria-labelledby="backup-title">
+        <div style={{ ...styles.confirmDialog, ...styles.recoveryDialog }}>
+          <h2 id="backup-title" style={styles.modalTitle}>保存履歴から復元</h2>
+          <p style={styles.confirmSubTextStrong}>復元すると現在の一覧を置き換えます。通常の履歴は直近30世代、完全削除・初期化・復元の直前の履歴は別途保持します。</p>
+          {backupList.length === 0 && <p>保存履歴はまだありません。</p>}
+          {backupList.map((backup) => (
+            <div key={backup.id} style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center", padding: "12px 0" }}>
+              <span style={{ minWidth: 0, flex: 1 }}>{backup.id === "previous" ? "直前の保存 · " : ""}{formatDateTime(backup.createdAt)} · {backup.count}件{backup.protected ? " · 保護履歴" : ""}</span>
+              <button type="button" disabled={restoring} onClick={() => restoreDiskBackup(backup.id)} style={{ ...styles.confirmSupportButton, flex: "0 0 64px", whiteSpace: "nowrap" }}>復元</button>
+            </div>
+          ))}
+          <p role="status">{storageError && storageMode === "error" ? storageError : status}</p>
+          <button type="button" disabled={restoring} onClick={() => setBackupList(null)} style={styles.confirmCancelButton}>閉じる</button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -1905,6 +2023,7 @@ function openDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
     request.onerror = reject;
+    request.onblocked = () => reject(new Error("ブラウザの画像保存が他の画面で使用中です。"));
     request.onupgradeneeded = () => {
       request.result.createObjectStore(STORE_NAME);
     };
@@ -1912,9 +2031,12 @@ function openDb() {
   });
 }
 
-async function saveImage(id, dataUrl) {
-  await saveBrowserImage(id, dataUrl);
-  if (localFileStorageEnabled) await saveLocalFileImage(id, dataUrl);
+async function saveImage(_id, dataUrl) {
+  const imageId = "image-" + crypto.randomUUID();
+  if (!localFileStorageEnabled) throw new Error("保存先を確認できないため保存を停止しました。");
+  await saveLocalFileImage(imageId, dataUrl);
+  saveBrowserImage(imageId, dataUrl).catch((error) => console.warn("Thumbnail cache unavailable; the local image is saved.", error));
+  return imageId;
 }
 
 async function getImage(id) {
@@ -1922,22 +2044,7 @@ async function getImage(id) {
     const localImage = await getLocalFileImage(id);
     if (localImage) return localImage;
   }
-
-  const browserImage = await getBrowserImage(id);
-  if (browserImage && localFileStorageEnabled) {
-    await saveLocalFileImage(id, browserImage);
-  }
-  return browserImage;
-}
-
-async function deleteImage(id) {
-  if (localFileStorageEnabled) await deleteLocalFileImage(id);
-  await deleteBrowserImage(id);
-}
-
-async function deleteAllImages() {
-  if (localFileStorageEnabled) await deleteAllLocalFileImages();
-  await deleteAllBrowserImages();
+  return getBrowserImage(id);
 }
 
 async function saveBrowserImage(id, dataUrl) {
@@ -1980,33 +2087,8 @@ async function getBrowserImage(id) {
   });
 }
 
-async function deleteBrowserImage(id) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).delete(id);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-  });
-}
-
-function deleteAllBrowserImages() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(DB_NAME);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error || new Error("Failed to delete IndexedDB"));
-    request.onblocked = () => reject(new Error("IndexedDB delete was blocked"));
-  });
-}
-
 function loadBrowserState() {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = readBrowserCache(STORAGE_KEY);
   if (!raw) return { items: sampleItems, trash: [], importBackup: null, hasStoredData: false };
 
   try {
@@ -2027,58 +2109,28 @@ function loadBrowserState() {
   }
 }
 
-async function requestLocalStorage(pathname, options = {}) {
-  const response = await fetch(`${LOCAL_STORAGE_API}${pathname}`, {
-    cache: "no-store",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Local storage request failed: ${response.status}`);
-  }
-  return response.json();
-}
-
-function loadLocalFileData() {
-  return requestLocalStorage("/data");
-}
-
-function saveLocalFileData(data) {
-  return requestLocalStorage("/data", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-
+function loadLocalFileData() { return fileStorage.load(); }
+function saveLocalFileData(data) { return fileStorage.save(data); }
 async function getLocalFileImage(id) {
-  const result = await requestLocalStorage(`/images/${encodeURIComponent(id)}`);
+  const result = await fileStorage.readImage(id);
   return result.exists ? result.dataUrl : "";
 }
-
-function saveLocalFileImage(id, dataUrl) {
-  return requestLocalStorage(`/images/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify({ dataUrl }),
-  });
-}
-
-function deleteLocalFileImage(id) {
-  return requestLocalStorage(`/images/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-function deleteAllLocalFileImages() {
-  return requestLocalStorage("/images", {
-    method: "DELETE",
-  });
-}
+function saveLocalFileImage(id, dataUrl) { return fileStorage.saveImage(id, dataUrl); }
 
 const styles = {
+  recoveryDialog: {
+    width: "min(580px, 100%)",
+    minWidth: 0,
+    maxHeight: "calc(100dvh - 32px)",
+    overflowY: "auto",
+    boxSizing: "border-box",
+    color: "#f5f5f7",
+    fontSize: "14px",
+    lineHeight: 1.6,
+    padding: "20px",
+    textAlign: "left",
+    fontFamily: '"Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif',
+  },
 
   storageWarning: {
     display: "inline-flex",
