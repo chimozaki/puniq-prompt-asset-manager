@@ -21,7 +21,7 @@ const DEFAULT_COL_COUNT = 4;
 const EXPORT_THUMBNAILS_DIR = "thumbnails";
 const DESKTOP_SPLIT_MIN_WIDTH = 1280;
 const MOBILE_BREAKPOINT = 900;
-const APP_VERSION = "v1.5.0";
+const APP_VERSION = "v1.5.1";
 let localFileStorageEnabled = false;
 const EMPTY_FORM = {
   title: "",
@@ -2228,7 +2228,7 @@ const styles = {
     cursor: "pointer",
     fontSize: "13px",
     fontWeight: 700,
-    font: "inherit",
+    fontFamily: "inherit",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2377,7 +2377,10 @@ const styles = {
   },
   brand: { color: "#ff7ab8" },
   subtitle: {
-    margin: "10px 0 0 0",
+    marginTop: "10px",
+    marginRight: 0,
+    marginBottom: 0,
+    marginLeft: 0,
     color: "#d7d9df",
     fontSize: "16px",
     textAlign: "left",
@@ -2757,7 +2760,8 @@ const styles = {
   divider: {
     display: "flex",
     alignItems: "baseline",
-    gap: "14px",
+    rowGap: "14px",
+    columnGap: "14px",
     margin: "10px 0 18px",
     borderTop: "1px solid rgba(255,255,255,0.16)",
     paddingTop: "18px",
@@ -3005,7 +3009,7 @@ const styles = {
     cursor: "pointer",
     fontSize: "13px",
     fontWeight: 700,
-    font: "inherit",
+    fontFamily: "inherit",
     display: "inline-flex",
     alignItems: "center",
     gap: "6px",
@@ -3042,7 +3046,7 @@ const styles = {
     cursor: "pointer",
     fontSize: "13px",
     fontWeight: 600,
-    font: "inherit",
+    fontFamily: "inherit",
     textAlign: "left",
     whiteSpace: "nowrap",
   },
@@ -3055,7 +3059,7 @@ const styles = {
     cursor: "pointer",
     fontSize: "13px",
     fontWeight: 700,
-    font: "inherit",
+    fontFamily: "inherit",
     textAlign: "left",
     whiteSpace: "nowrap",
   },
@@ -3075,7 +3079,7 @@ const styles = {
     cursor: "pointer",
     fontSize: "13px",
     fontWeight: 700,
-    font: "inherit",
+    fontFamily: "inherit",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -3092,7 +3096,7 @@ const styles = {
     cursor: "pointer",
     fontSize: "13px",
     fontWeight: 700,
-    font: "inherit",
+    fontFamily: "inherit",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",

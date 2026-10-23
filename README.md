@@ -1,10 +1,10 @@
 # 🎨 PuniQ Prompt Asset Manager
 
-**Version 1.5.0 · 2026-09-10** — [Release notes / 更新履歴](RELEASE_NOTES.md)
+**Version 1.5.1 · 2026-10-24** — [Release notes / 更新履歴](RELEASE_NOTES.md)
 
-> **データ保護の改修（未リリース）**：競合する保存は停止し、保存履歴から復元できます。完全削除・初期化後も復旧用画像と履歴は残ります。保存APIに接続できない場合は編集を停止します。[データ保護と復元手順](DATA_SAFETY.md)
+> **v1.5.1：セキュリティ・表示・データ保護**：依存関係を更新し、画面幅切り替え時の文字・余白指定の警告を修正しました。競合する保存は停止し、保存履歴から復元できます。完全削除・初期化後も復旧用画像と履歴は残ります。保存APIに接続できない場合は編集を停止します。[データ保護と復元手順](DATA_SAFETY.md)
 >
-> **Unreleased data protection update:** stale writes are rejected; file history supports recovery. Recovery images/history remain after deletion or reset. Editing stops if the storage API is unavailable. [Recovery details (Japanese)](DATA_SAFETY.md)
+> **v1.5.1 security, display and data protection update:** dependencies are refreshed and responsive style conflicts are fixed. Stale writes are rejected; file history supports recovery. Recovery images/history remain after deletion or reset. Editing stops if the storage API is unavailable. [Recovery details (Japanese)](DATA_SAFETY.md)
 
 ![PuniQ Prompt Asset Manager](screenshot_exsample.png)
 
